@@ -412,6 +412,9 @@ def prepare_parser():
         '--eval_prdc', action='store_true', default=False,
         help='(Eval) Evaluate prdc '
              ' (default: %(default)s)')
+    parser.add_argument(
+        '--eval_reference_set', type=str, default='train',
+        help='(Eval) Reference dataset to use for FID computation (default: %(default)s)')
 
     ### Resume training stuff
     parser.add_argument(
