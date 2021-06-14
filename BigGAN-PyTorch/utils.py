@@ -752,14 +752,14 @@ class DistributedSampler(torch.utils.data.sampler.Sampler):
     def set_epoch(self, epoch):
         self.epoch = epoch
 
-def get_dataloader_clean(dataset,batch_size=64,
-                    num_workers=8, shuffle=True,
-                    pin_memory=True, drop_last=True, start_itr=0,
-                    start_epoch=0, use_checkpointable_sampler=False,
-                    use_balanced_sampler=False, custom_distrib_gen=False,
-                    samples_per_class=None, class_probabilities=None,
-                    seed=0, longtail_temperature=1, rank=0, world_size=-1,
-                    **kwargs):
+def get_dataloader(dataset, batch_size=64,
+                   num_workers=8, shuffle=True,
+                   pin_memory=True, drop_last=True, start_itr=0,
+                   start_epoch=0, use_checkpointable_sampler=False,
+                   use_balanced_sampler=False, custom_distrib_gen=False,
+                   samples_per_class=None, class_probabilities=None,
+                   seed=0, longtail_temperature=1, rank=0, world_size=-1,
+                   **kwargs):
 
     # Prepare loader; the loaders list is for forward compatibility with
     # using validation / test splits.
