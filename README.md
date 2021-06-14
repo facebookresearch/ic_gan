@@ -26,7 +26,7 @@ DIffAugment
 * Testing utilities:
     * In calculate_inception_moments: added option to obtain moments for ImageNet-LT dataset, as well as stratified moments for many, medium and few-shot classes (stratified FID computation).
     * Option to compute PRDC (cite) and stratified FID in inception_utils.
-
+    
 * Data utilities:
     * In datasets.py, added option to load ImageNet-LT dataset.
     * Added ImageNet-LT .txt files with image indexes for training and validation split. 
@@ -38,3 +38,14 @@ DIffAugment
     * Option to either have the optimizers inside the generator and discriminator class, or directly in the G_D wrapper module.
     * Added a function get_condition_embeddings to handle the conditioning separately.
     * Small modifications to layers.py to adapt the batchnorm function calls to the pytorch 1.8 version. 
+    
+    
+## Data preparation 
+./scripts/utils/prepare_data.sh: change data path to dataset and the output path.
+## How to train the models
+(Change output path and data path accordingly)
+python run.py --json_config scripts/config_files/<dataset>/<selected_config>.json
+## How to obtain metrics
+* python test.py --json_config scripts/config_files/ImageNet/biggan_res64_ddp.json --batch_size 64 --num_inception_images 50000 --seed 0 --sample_num_npz 50000 --eval_reference_set 'val' --eval_prdc --sample_npz
+* ###TODO: obtain TF1.3 in gan_lt_pyt1.8_ddp
+* python inception_tf13.py --json_config scripts/config_files/ImageNet/biggan_res64_ddp.json
