@@ -47,5 +47,6 @@ DIffAugment
 python run.py --json_config scripts/config_files/<dataset>/<selected_config>.json
 ## How to obtain metrics
 * python test.py --json_config scripts/config_files/ImageNet/biggan_res64_ddp.json --batch_size 64 --num_inception_images 50000 --seed 0 --sample_num_npz 50000 --eval_reference_set 'val' --eval_prdc --sample_npz
+* python test.py --json_config scripts/config_files/ImageNet-LT/biggan_res64.json --batch_size 64 --num_inception_images 115000 --seed 0 --sample_num_npz 115000 --eval_reference_set 'train' --sample_npz
 * ###TODO: obtain TF1.3 in gan_lt_pyt1.8_ddp
 * python inception_tf13.py --json_config scripts/config_files/ImageNet/biggan_res64_ddp.json

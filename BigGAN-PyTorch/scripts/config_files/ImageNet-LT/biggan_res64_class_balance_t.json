@@ -14,7 +14,7 @@
   "n_gpus_per_node": 1,
   "hflips": false,
 
-  "test_every": 1,
+  "test_every": 10,
   "save_every": 1,
   "num_epochs": 3000,
   "es_patience": 50,
