@@ -245,7 +245,8 @@ def train(rank, world_size, config, dist_url):
         **{**config, 'data_path': config['data_root'], 'batch_size': D_batch_size,
            'augment': config['hflips'],
            'local_rank': local_rank, 'copy_locally': copy_locally,
-           'tmp_dir':tmp_dir
+           'tmp_dir':tmp_dir,
+           'ddp': config['ddp_train']
            })
     train_loader = utils.get_dataloader(
         **{**config, 'dataset': train_dataset,
