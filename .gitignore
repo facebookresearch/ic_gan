@@ -1,0 +1,6 @@
+data/
+weight_norms/
+*pyc
+inception_net/
+*.npy
+*.npz
