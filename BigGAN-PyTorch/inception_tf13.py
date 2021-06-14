@@ -21,6 +21,8 @@ from argparse import ArgumentParser
 import numpy as np
 from six.moves import urllib
 import tensorflow as tf
+import pickle
+import json
 
 MODEL_DIR = ''
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
@@ -45,14 +47,16 @@ def run(config):
   # Inception with TF1.3 or earlier.
   # Call this function with list of images. Each of elements should be a 
   # numpy array with values ranging from 0 to 255.
-  def get_inception_score(images, splits=10):
+  def get_inception_score(images, splits=10, normalize=True):
     assert(type(images) == list)
     assert(type(images[0]) == np.ndarray)
     assert(len(images[0].shape) == 3)
-    assert(np.max(images[0]) > 10)
-    assert(np.min(images[0]) >= 0.0)
+  #  assert(np.max(images[0]) > 10)
+  #  assert(np.min(images[0]) >= 0.0)
     inps = []
     for img in images:
+      if normalize:
+        img = np.uint8(255 * (img + 1) / 2.)
       img = img.astype(np.float32)
       inps.append(np.expand_dims(img, 0))
     bs = config['batch_size']
@@ -109,28 +113,40 @@ def run(config):
               new_shape.append(None)
             else:
               new_shape.append(s)
-          o._shape = tf.TensorShape(new_shape)
+          o.__dict__['_shape_val'] = tf.TensorShape(new_shape)
       w = sess.graph.get_operation_by_name("softmax/logits/MatMul").inputs[1]
-      logits = tf.matmul(tf.squeeze(pool3), w)
+      logits = tf.matmul(tf.squeeze(pool3, [1, 2]), w)
       softmax = tf.nn.softmax(logits)
 
   # if softmax is None: # No need to functionalize like this.
   _init_inception()
 
-  fname = '%s/%s/samples.npz' % (config['experiment_root'], config['experiment_name'])
+  fname = '%s/%s/samples.pickle' % (config['experiment_root'], config['experiment_name'])
   print('loading %s ...'%fname)
-  ims = np.load(fname)['x']
+  file_to_read = open(fname, "rb")
+  ims = pickle.load(file_to_read)['x']
+  print('loading %s ...' % fname)
+  print('number of images saved are ', len(ims))
+  file_to_read.close()
   import time
   t0 = time.time()
   inc_mean, inc_std, pool_activations = get_inception_score(list(ims.swapaxes(1,2).swapaxes(2,3)), splits=10)
   t1 = time.time()
   print('Saving pool to numpy file for FID calculations...')
-  np.savez('%s/%s/TF_pool.npz' % (config['experiment_root'], config['experiment_name']), **{'pool_mean': np.mean(pool_activations,axis=0), 'pool_var': np.cov(pool_activations, rowvar=False)})
+  np.savez('%s/%s/TF_pool.npy' % (config['experiment_root'], config['experiment_name']), **{'pool_mean': np.mean(pool_activations,axis=0), 'pool_var': np.cov(pool_activations, rowvar=False)})
   print('Inception took %3f seconds, score of %3f +/- %3f.'%(t1-t0, inc_mean, inc_std))
 def main():
   # parse command line and run
   parser = prepare_parser()
   config = vars(parser.parse_args())
+
+  if config['json_config'] != "":
+    data = json.load(open(config['json_config']))
+  else:
+    raise ValueError('Need config file!')
+  for key in data.keys():
+    config[key] = data[key]
+
   print(config)
   run(config)
 
