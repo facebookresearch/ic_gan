@@ -40,6 +40,8 @@
   "G_ch": 64,
   "D_ch": 64,
 
+  "load_in_mem": true,
+
   "longtail": true,
   "longtail_gen": false,
   "use_balanced_sampler": true,
