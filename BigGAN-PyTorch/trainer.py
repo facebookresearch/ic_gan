@@ -247,7 +247,7 @@ def train(rank, world_size, config, dist_url):
            'local_rank': local_rank, 'copy_locally': copy_locally,
            'tmp_dir':tmp_dir
            })
-    train_loader = utils.get_dataloader_clean(
+    train_loader = utils.get_dataloader(
         **{**config, 'dataset': train_dataset,
            'batch_size': config['batch_size'],
         'start_epoch': state_dict['epoch'],

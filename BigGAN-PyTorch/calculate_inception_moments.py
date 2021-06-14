@@ -88,7 +88,7 @@ def run(config):
                                 split=config['split'],
                                 load_in_mem=config['load_in_mem'])
 
-    loader = utils.get_dataloader_clean(dataset, config['batch_size'],
+    loader = utils.get_dataloader(dataset, config['batch_size'],
                                         shuffle=False, **kwargs)
 
 

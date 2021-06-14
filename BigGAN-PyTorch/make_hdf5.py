@@ -63,7 +63,7 @@ def run(config):
                                               config['data_root'],
                                               config['split']),
                                      longtail=config['longtail'])
-  train_loader = utils.get_dataloader_clean(dataset, config['batch_size'],
+  train_loader = utils.get_dataloader(dataset, config['batch_size'],
                                       shuffle=False, **kwargs)
 
   # HDF5 supports chunking and compression. You may want to experiment 

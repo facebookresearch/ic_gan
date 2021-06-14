@@ -26,7 +26,6 @@ DIffAugment
 * Testing utilities:
     * In calculate_inception_moments: added option to obtain moments for ImageNet-LT dataset, as well as stratified moments for many, medium and few-shot classes (stratified FID computation).
     * Option to compute PRDC (cite) and stratified FID in inception_utils.
-    
 * Data utilities:
     * In datasets.py, added option to load ImageNet-LT dataset.
     * Added ImageNet-LT .txt files with image indexes for training and validation split. 
@@ -72,3 +71,4 @@ cd data_utils
 
 
 ## Specify where to download the long-tail dataset
+=======
