@@ -295,22 +295,28 @@ class ccbn(nn.Module):
     self.norm_style = norm_style
     
     if self.cross_replica:
-      self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.momentum, affine=False)
+      # self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.momentum, affine=False)
+      self.bn = nn.BatchNorm2d(output_size, eps=self.eps, momentum=self.momentum,
+                         affine=False)
     elif self.mybn:
       self.bn = myBN(output_size, self.eps, self.momentum)
     elif self.norm_style in ['bn', 'in']:
       self.register_buffer('stored_mean', torch.zeros(output_size))
-      self.register_buffer('stored_var',  torch.ones(output_size)) 
-    
-    
+      self.register_buffer('stored_var',  torch.ones(output_size))
+
+
   def forward(self, x, y):
     # Calculate class-conditional gains and biases
     gain = (1 + self.gain(y)).view(y.size(0), -1, 1, 1)
     bias = self.bias(y).view(y.size(0), -1, 1, 1)
+
     # If using my batchnorm
-    if self.mybn or self.cross_replica:
+    if self.cross_replica:
+      out = self.bn(x)
+      out = out * gain + bias
+      return out
+    elif self.mybn:
       return self.bn(x, gain=gain, bias=bias)
-    # else:
     else:
       if self.norm_style == 'bn':
         out = F.batch_norm(x, self.stored_mean, self.stored_var, None, None,
@@ -332,12 +338,10 @@ class ccbn(nn.Module):
 # Normal, non-class-conditional BN
 class bn(nn.Module):
   def __init__(self, output_size,  eps=1e-5, momentum=0.1,
-                cross_replica=False, mybn=False):
+                cross_replica=False, mybn=False, **kwargs):
     super(bn, self).__init__()
     self.output_size= output_size
-    # Prepare gain and bias layers
-    self.gain = P(torch.ones(output_size), requires_grad=True)
-    self.bias = P(torch.zeros(output_size), requires_grad=True)
+
     # epsilon to avoid dividing by 0
     self.eps = eps
     # Momentum
@@ -348,18 +352,28 @@ class bn(nn.Module):
     self.mybn = mybn
     
     if self.cross_replica:
-      self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.momentum, affine=False)    
+      #self.bn = SyncBN2d(output_size, eps=self.eps, momentum=self.momentum, affine=False)
+      self.bn = nn.BatchNorm2d(output_size, eps=self.eps, momentum=self.momentum,
+                         affine=True)
     elif mybn:
+      # Prepare gain and bias layers
       self.bn = myBN(output_size, self.eps, self.momentum)
      # Register buffers if neither of the above
     else:     
       self.register_buffer('stored_mean', torch.zeros(output_size))
       self.register_buffer('stored_var',  torch.ones(output_size))
+
+    if not self.cross_replica:
+      self.gain = P(torch.ones(output_size), requires_grad=True)
+      self.bias = P(torch.zeros(output_size), requires_grad=True)
     
   def forward(self, x, y=None):
-    if self.cross_replica or self.mybn:
-      gain = self.gain.view(1,-1,1,1)
-      bias = self.bias.view(1,-1,1,1)
+    if self.cross_replica:
+      out = self.bn(x)
+      return out
+    elif self.mybn:
+      gain = self.gain.view(1, -1, 1, 1)
+      bias = self.bias.view(1, -1, 1, 1)
       return self.bn(x, gain=gain, bias=bias)
     else:
       return F.batch_norm(x, self.stored_mean, self.stored_var, self.gain,

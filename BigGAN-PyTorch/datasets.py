@@ -105,22 +105,27 @@ class ImageFolder(data.Dataset):
   """
 
   def __init__(self, root, transform=None, target_transform=None,
-               loader=default_loader, load_in_mem=False, 
-               index_filename='imagenet_imgs.npz', **kwargs):
+               loader=default_loader, load_in_mem=False,
+               index_filename='imagenet_imgs.npz', longtail=False,
+               split='train', **kwargs):
+
     classes, class_to_idx = find_classes(root)
     # Load pre-computed image directory walk
-    if os.path.exists(index_filename):
-      print('Loading pre-saved Index file %s...' % index_filename)
-      imgs = np.load(index_filename)['imgs']
-    # If first time, walk the folder directory and save the 
-    # results to a pre-computed file.
-    else:
-      print('Generating  Index file %s...' % index_filename)
+    print('Generating  Index file %s...' % index_filename)
+    if not longtail:
       imgs = make_dataset(root, class_to_idx)
-      np.savez_compressed(index_filename, **{'imgs' : imgs})
+    else:
+      imgs = []
+      print('Using long-tail version of the dataset with split ', split, '!')
+      with open('imagenet_lt/ImageNet_LT_' + split + '.txt') as f:
+        for line in f:
+            imgs.append(
+              (os.path.join(root, '/'.join(line.split()[0].split('/')[1:])), int(line.split()[1])))
+      np.savez_compressed(os.path.join(index_filename), **{'imgs': imgs})
     if len(imgs) == 0:
-      raise(RuntimeError("Found 0 images in subfolders of: " + root + "\n"
-                           "Supported image extensions are: " + ",".join(IMG_EXTENSIONS)))
+      raise (RuntimeError("Found 0 images in subfolders of: " + root + "\n"
+                                                                       "Supported image extensions are: " + ",".join(
+        IMG_EXTENSIONS)))
 
     self.root = root
     self.imgs = imgs
@@ -130,7 +135,7 @@ class ImageFolder(data.Dataset):
     self.target_transform = target_transform
     self.loader = loader
     self.load_in_mem = load_in_mem
-    
+
     if self.load_in_mem:
       print('Loading all images into memory...')
       self.data, self.labels = [], []
@@ -138,7 +143,6 @@ class ImageFolder(data.Dataset):
         path, target = imgs[index][0], imgs[index][1]
         self.data.append(self.transform(self.loader(path)))
         self.labels.append(target)
-          
 
   def __getitem__(self, index):
     """
@@ -149,33 +153,21 @@ class ImageFolder(data.Dataset):
         tuple: (image, target) where target is class_index of the target class.
     """
     if self.load_in_mem:
-        img = self.data[index]
-        target = self.labels[index]
+      img = self.data[index]
+      target = self.labels[index]
     else:
       path, target = self.imgs[index]
       img = self.loader(str(path))
       if self.transform is not None:
         img = self.transform(img)
-    
+
     if self.target_transform is not None:
       target = self.target_transform(target)
-    
-    # print(img.size(), target)
-    return img, int(target)
+    # print('image is ', img.shape, 'target is ', target, int(target))
+    return img, int(target) #, index
 
   def __len__(self):
     return len(self.imgs)
-
-  def __repr__(self):
-    fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
-    fmt_str += '    Number of datapoints: {}\n'.format(self.__len__())
-    fmt_str += '    Root Location: {}\n'.format(self.root)
-    tmp = '    Transforms (if any): '
-    fmt_str += '{0}{1}\n'.format(tmp, self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
-    tmp = '    Target Transforms (if any): '
-    fmt_str += '{0}{1}'.format(tmp, self.target_transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
-    return fmt_str
-        
 
 ''' ILSVRC_HDF5: A dataset to support I/O from an HDF5 to avoid
     having to load individual images all the time. '''
