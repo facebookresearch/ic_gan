@@ -1,5 +1,5 @@
 {
-  "experiment_name": "biggan_imagenet_lt_class_cond_res64",
+  "experiment_name": "biggan_imagenet_lt_class_cond_res64_withDA",
   "data_root": "../..//anyshot_longtail/data",
   "base_root": "/checkpoint/acasanova/ic_gan/64x64",
   "run_setup": "slurm",
@@ -12,7 +12,9 @@
   "use_checkpointable_sampler": true,
   "n_nodes": 1,
   "n_gpus_per_node": 1,
-  "hflips": false,
+  "hflips": true,
+  "DA": true,
+  "DiffAugment": "translation",
 
   "test_every": 10,
   "save_every": 1,
