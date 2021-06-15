@@ -9,6 +9,10 @@ def get_parser():
                         required=False, default='training-runs', metavar='DIR')
     parser.add_argument('--slurm_logdir', help='Where to save the logs from SLURM',
                         required=False, default='training-runs', metavar='DIR')
+    parser.add_argument('--partition', help='Partition name for SLURM', required=False,
+                        default='learnlab')
+    parser.add_argument('--slurm_time', help='Time in minutes that an experiment runs in SLURM',
+                        default=3200, type=int, metavar='INT')
     parser.add_argument('--gpus', help='Number of GPUs to use [default: 1]',
                         type=int, metavar='INT')
     parser.add_argument('--nodes', help='Number of nodes to use [default: 1]',

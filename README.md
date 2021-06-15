@@ -72,3 +72,5 @@ cd data_utils
 
 
 ## Specify where to download the long-tail dataset
+python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/anyshot_longtail/data/COCO128_xy.hdf5 --gpus=2 --exp_name 'stylegan2_coco128_unconditional' --aug=noaug --lrate 0.0025 --slurm=1
+python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/anyshot_longtail/data/ILSVRC128_xy.hdf5 --gpus=8 --nodes=2 --batch 1024 --exp_name 'stylegan2_imagenet128_unconditional' --aug=noaug --lrate 0.0025 --slurm=1
