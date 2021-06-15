@@ -26,11 +26,12 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
-import datasets as dset
+#import datasets as dset
 import shutil
 import torch.distributed as dist
 
-import h5py as h5
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+import data_utils.datasets_common as dset
 
 def prepare_parser():
     usage = 'Parser for all scripts.'
@@ -94,6 +95,52 @@ def prepare_parser():
         '--hflips', action='store_true', default=False,
         help='Use horizontal flips in data augmentation.'
              '(default: %(default)s)')
+
+    ### IC-GAN arguments ###
+    parser.add_argument(
+        '--instance_cond', action='store_true', default=False,
+        help='Use instance features as conditioning')
+    parser.add_argument(
+        '--feature_augmentation', action='store_true', default=False,
+        help='use hflips in instance conditionings (default: %(default)s)')
+    parser.add_argument(
+        '--which_knn_balance', type=str, default='center_balance',
+        choices=['center_balance', 'nnclass_balance'],
+        help='Class balancing either done at the instance level or at the class level.')
+    parser.add_argument(
+        '--G_shared_feat', action='store_true', default=False,
+        help='Use fully connected layer for conditioning instance features in G? (default: %(default)s)')
+    parser.add_argument(
+        '--shared_dim_feat', type=int, default=2048,
+        help='G''s fully connected layer output dimensionality for instance features'
+             '(default: %(default)s)')
+    parser.add_argument(
+        '--k_nn', type=int, default=50,
+        help='Number of neigbors for each instance'
+             '(default: %(default)s)')
+    parser.add_argument(
+        '--feature_extractor', type=str, default='classification',
+        choices=['classification','selfsupervised'],
+        help='Choice of feature extractor')
+    parser.add_argument(
+        '--backbone_feature_extractor', type=str, default='resnext50',
+        choices=['resnext50','resnet50'],
+        help='Choice of feature extractor backbone')
+
+    parser.add_argument(
+        '--eval_instance_set', type=str, default='train',
+        help='(Eval) Dataset split from which to draw conditioning instances (default: %(default)s)')
+    parser.add_argument(
+        '--kmeans_subsampled', type=int, default=-1,
+        help='Number of kmeans centers if using subsampled training instances (default: %(default)s)')
+    parser.add_argument(
+        '--n_subsampled_data', type=float, default=-1,
+        help='Percent of instances used at test time')
+
+    ### COCO-Stuff evaluation ###
+    parser.add_argument(
+        '--filter_hd', type=int, default=-1,
+        help='Hamming distance to filter val test in COCO-Stuff (by default no filtering) (default: %(default)s)')
 
     ### Model stuff ###
     parser.add_argument(
@@ -632,10 +679,15 @@ def make_weights_for_balanced_classes(labels, nclasses,
     print('Sum weight', sum(weight))
     return weight
 
-def get_dataset_hdf5(resolution, data_path, load_in_mem=False, augment=False,longtail=False,
-                local_rank=0, copy_locally=False, ddp=True, tmp_dir='', **kwargs):
+def get_dataset_hdf5(resolution, data_path, augment=False,longtail=False,
+                local_rank=0, copy_locally=False, ddp=True, tmp_dir='',
+                class_cond=True, instance_cond=False, feature_extractor='classification',
+                backbone_feature_extractor='resnext50',
+                 which_nn_balance='center_balance', which_dataset='imagenet',
+                 test_part=False, kmeans_subsampled=-1, n_subsampled_data=-1,
+                     filter_hd=-1, k_nn=50, **kwargs):
 
-    dataset_name_prefix = 'ILSVRC' # if which_dataset == 'imagenet' else 'COCO'
+    dataset_name_prefix = 'ILSVRC' if which_dataset == 'imagenet' else 'COCO'
     # HDF5 file name
     hdf5_filename = '%s%i%s' % (
         dataset_name_prefix, resolution,
@@ -643,16 +695,41 @@ def get_dataset_hdf5(resolution, data_path, load_in_mem=False, augment=False,lon
 
     # Data paths
     data_path_xy = os.path.join(data_path, hdf5_filename + '_xy.hdf5')
-    #'/scratch/slurm_tmpdir/'+str(os.environ.get("SLURM_JOB_ID"))
+    data_path_feats, data_path_nns, kmeans_file = None, None,  None
+    if instance_cond:
+        data_path_feats = os.path.join(data_path,
+                                           hdf5_filename + '_feats_%s_%s.hdf5'%
+                                           (feature_extractor, backbone_feature_extractor))
+        data_path_nns = os.path.join(data_path,
+                                     hdf5_filename + '_feats_%s_%s_nn_k%i.hdf5' %
+                                     (feature_extractor,
+                                      backbone_feature_extractor,
+                                      k_nn))
+        if kmeans_subsampled > -1:
+            d_name = 'IN' if which_dataset == 'imagenet' else 'COCO'
+            kmeans_file = d_name + '_res' + str(
+                resolution) + '_rn50_' + feature_extractor + \
+                          '_kmeans_k' + str(kmeans_subsampled) + '.npy'
+
 
     # Optionally copy the data locally in the cluster.
     if copy_locally:
         tmp_file = os.path.join(tmp_dir, hdf5_filename + '_xy.hdf5')
         print(tmp_file)
+        if instance_cond:
+            tmp_file_feats = os.path.join(tmp_dir,
+                                      hdf5_filename + '_feats_%s_%s.hdf5' %
+                                      (feature_extractor,
+                                       backbone_feature_extractor))
+            print(tmp_file_feats)
+
         # Only copy locally for the first device in each machine
         if local_rank == 0: #device == 'cuda:0':
             shutil.copy2(data_path_xy, tmp_file)
+            if instance_cond:
+                shutil.copy2(data_path_feats, tmp_file_feats)
         data_path_xy = tmp_file
+        data_path_feats = tmp_file_feats
 
         # Wait for the main process to copy the data locally
         if ddp:
@@ -664,8 +741,17 @@ def get_dataset_hdf5(resolution, data_path, load_in_mem=False, augment=False,lon
         transform_list = transforms.RandomHorizontalFlip()
     else:
         transform_list = None
-    dataset = dset.ILSVRC_HDF5(root=data_path_xy, transform=transform_list,
-                            load_in_mem=load_in_mem)
+
+    dataset = dset.ILSVRC_HDF5_feats(root=data_path_xy, root_feats=data_path_feats,
+                                     root_nns=data_path_nns,
+                                     transform=transform_list,
+                                    load_labels= class_cond, load_features=instance_cond,
+                                    load_in_mem_images=False, load_in_mem_labels=True,
+                                    load_in_mem_feats=True, k_nn=k_nn,
+                                    which_nn_balance=which_nn_balance,
+                                    kmeans_file=kmeans_file,
+                                    n_subsampled_data=n_subsampled_data,
+                                    filter_hd=filter_hd)
     return dataset
 
 def get_dataset_images(resolution, data_path, load_in_mem=False, augment=False,longtail=False, **kwargs):
@@ -1145,11 +1231,13 @@ def progress(items, desc='', total=None, min_delay=0.1, displaytype='s1k'):
     print("\r%s%d/%d (100.00%%) (took %d:%02d)" % ((desc, total, total) +
                                                    divmod(t_total, 60)))
 
-def sample_conditioning_values(z_, y_, model_type='BigGAN',
-                               ddp=False, constant_conditioning=False):
+def sample_conditioning_values(z_, y_, ddp=False, batch_size=1, weights_sampling=None,
+                               dataset=None, constant_conditioning=False,
+                               class_cond=True, instance_cond=False,
+                               nn_sampling_strategy='center_balance'):
     with torch.no_grad():
       z_.sample_()
-      if model_type == 'BigGAN':
+      if class_cond and not instance_cond:
         y_.sample_()
         if constant_conditioning:
           return z_, torch.zeros_like(y_)
@@ -1158,22 +1246,41 @@ def sample_conditioning_values(z_, y_, model_type='BigGAN',
             return z_, y_
           else:
             return z_, y_.data.clone()
+      else:
+        if nn_sampling_strategy == 'center_balance':
+          sampling_funct_name = dataset.sample_conditioning_center_balance
+        elif nn_sampling_strategy == 'nnclass_balance':
+          sampling_funct_name = dataset.sample_conditioning_nnclass_balance
+
+        labels_g, f_g = sampling_funct_name(batch_size, weights_sampling)
+        if instance_cond and not class_cond:
+          return z_, f_g
+        elif instance_cond and class_cond:
+          return z_, labels_g, f_g
 
 # Sample function for use with inception metrics
-def sample(G, sample_conditioning_func, config, model_type='BigGAN', device='cuda'):
+def sample(G, sample_conditioning_func, config, class_cond=True, instance_cond=False, device='cuda'):
     conditioning = sample_conditioning_func()
     with torch.no_grad():
-      if model_type == 'BigGAN':
+      if class_cond and not instance_cond:
         z_, y_ = conditioning
         y_ = y_.long()
-        z_ = z_.to(device, non_blocking=True)
         y_ = y_.to(device,non_blocking=True)
 
-        if config['parallel']:
-            G_z = nn.parallel.data_parallel(G,(z_,y_))
-        else:
-            G_z = G(z_, y_)
-        return G_z, y_
+      elif instance_cond and not class_cond:
+        z_, feats_ = conditioning
+        feats_ = feats_.to(device,non_blocking=True)
+        y_=None
+      elif instance_cond and class_cond:
+        z_, y_,feats_ = conditioning
+        y_, feats_ = y_.to(device,non_blocking=True), feats_.to(device,non_blocking=True)
+      z_ = z_.to(device, non_blocking=True)
+
+      if config['parallel']:
+        G_z = nn.parallel.data_parallel(G,(z_,y_, feats_))
+      else:
+        G_z = G(z_, y_, feats_)
+    return G_z, y_, feats_
 
 
 # Sample function for sample sheets
