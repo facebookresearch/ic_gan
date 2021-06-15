@@ -63,6 +63,7 @@ class Generator(nn.Module):
                G_init='ortho', skip_init=False, no_optim=False,
                G_param='SN', norm_style='bn',
                class_cond=True, embedded_optimizer=True,
+               instance_cond=False, G_shared_feat=True, shared_dim_feat=2048,
                **kwargs):
     super(Generator, self).__init__()
     # Channel width mulitplier
@@ -103,6 +104,9 @@ class Generator(nn.Module):
     self.SN_eps = SN_eps
     # fp16?
     self.fp16 = G_fp16
+    # Use embeddings for instance features?
+    self.G_shared_feat = G_shared_feat
+    self.shared_dim_feat = shared_dim_feat
     # Architecture dict
     self.arch = G_arch(self.ch, self.attention)[resolution]
 
@@ -135,12 +139,14 @@ class Generator(nn.Module):
     self.which_embedding = nn.Embedding
     bn_linear = (functools.partial(self.which_linear, bias=False) if self.G_shared
                  else self.which_embedding)
-    if not class_cond:
+    if not class_cond and not instance_cond:
         input_sz_bn = self.n_classes
     else:
         input_sz_bn = self.z_chunk_size
     if class_cond:
         input_sz_bn += self.shared_dim
+    if instance_cond:
+        input_sz_bn += self.shared_dim_feat
     self.which_bn = functools.partial(layers.ccbn,
                           which_linear=bn_linear,
                           cross_replica=self.cross_replica,
@@ -154,6 +160,9 @@ class Generator(nn.Module):
     # If not using shared embeddings, self.shared is just a passthrough
     self.shared = (self.which_embedding(n_classes, self.shared_dim) if G_shared
                     else layers.identity())
+    self.shared_feat = (
+        self.which_linear(2048, self.shared_dim_feat) if G_shared_feat
+        else layers.identity())
     # First linear layer
     self.linear = self.which_linear(self.dim_z // self.num_slots,
                                     self.arch['in_channels'][0] * (self.bottom_width **2))
@@ -230,10 +239,12 @@ class Generator(nn.Module):
     print('Param count for G''s initialized parameters: %d' % self.param_count)
 
     # Get conditionings
-  def get_condition_embeddings(self, cl=None):
+  def get_condition_embeddings(self, cl=None, feat=None):
     c_embed = []
     if cl is not None:
       c_embed.append(self.shared(cl))
+    if feat is not None:
+      c_embed.append(self.shared_feat(feat))
     if len(c_embed) > 0:
       c_embed = torch.cat(c_embed, dim=-1)
     return c_embed
@@ -242,8 +253,8 @@ class Generator(nn.Module):
   # already been passed through G.shared to enable easy class-wise
   # interpolation later. If we passed in the one-hot and then ran it through
   # G.shared in this forward function, it would be harder to handle.
-  def forward(self, z, label=None):
-    y = self.get_condition_embeddings(label)
+  def forward(self, z, label=None, feats=None):
+    y = self.get_condition_embeddings(label, feats)
     # If hierarchical, concatenate zs and ys
     if self.hier:
       zs = torch.split(z, self.z_chunk_size, 1)
@@ -304,7 +315,8 @@ class Discriminator(nn.Module):
                D_lr=2e-4, D_B1=0.0, D_B2=0.999, adam_eps=1e-8,
                SN_eps=1e-12, output_dim=1, D_mixed_precision=False, D_fp16=False,
                D_init='ortho', skip_init=False, D_param='SN',
-               class_cond=True, embedded_optimizer=True, **kwargs):
+               class_cond=True, embedded_optimizer=True,
+               instance_cond=False, instance_sz=2048, **kwargs):
     super(Discriminator, self).__init__()
     # Width multiplier
     self.ch = D_ch
@@ -367,10 +379,20 @@ class Discriminator(nn.Module):
     # larger if we're e.g. turning this into a VAE with an inference output
     self.linear = self.which_linear(self.arch['out_channels'][-1], output_dim)
     # Embedding for projection discrimination
-    if class_cond:
+    if class_cond and instance_cond:
+      self.linear_feat = self.which_linear(instance_sz,
+                                             self.arch['out_channels'][
+                                                 -1] // 2)
+      self.embed = self.which_embedding(self.n_classes,
+                                          self.arch['out_channels'][
+                                              -1] // 2)
+    elif class_cond:
         # Embedding for projection discrimination
       self.embed = self.which_embedding(self.n_classes,
                                           self.arch['out_channels'][-1])
+    elif instance_cond:
+      self.linear_feat = self.which_linear(instance_sz,
+                                             self.arch['out_channels'][-1])
 
     # Initialize weights
     if not skip_init:
@@ -409,7 +431,7 @@ class Discriminator(nn.Module):
         self.param_count += sum([p.data.nelement() for p in module.parameters()])
     print('Param count for D''s initialized parameters: %d' % self.param_count)
 
-  def forward(self, x, y=None):
+  def forward(self, x, y=None, feat=None):
     # Stick x into h for cleaner for loops without flow control
     h = x
     # Loop over blocks
@@ -420,11 +442,18 @@ class Discriminator(nn.Module):
     h = torch.sum(self.activation(h), [2, 3])
     # Get initial class-unconditional output
     out = self.linear(h)
-    # Condition on class
-    if y is not None:
+    # Condition on both class and instance features
+    if y is not None and feat is not None:
+      out = out + \
+              torch.sum(torch.cat([self.embed(y), self.linear_feat(feat)],
+                                  dim=-1) * h, 1, keepdim=True)
+    # Condition on class only
+    elif y is not None:
       # Get projection of final featureset onto class vectors and add to evidence
       out = out + torch.sum(self.embed(y) * h, 1, keepdim=True)
     # Condition on instance features only
+    elif feat is not None:
+      out = out + torch.sum(self.linear_feat(feat) * h, 1, keepdim=True)
     return out
 
 # Parallelized G_D to minimize cross-gpu communication
@@ -437,13 +466,13 @@ class G_D(nn.Module):
     self.optimizer_G = optimizer_G
     self.optimizer_D = optimizer_D
 
-  def forward(self, z, gy, x=None, dy=None,
+  def forward(self, z, gy, feats_g=None, x=None, dy=None, feats=None,
                 train_G=False, return_G_z=False,
                 split_D=False, policy=False, DA=False):
     # If training G, enable grad tape
     with torch.set_grad_enabled(train_G):
       # Get Generator output given noise
-      G_z = self.G(z, gy)
+      G_z = self.G(z, gy, feats_g)
       # Cast as necessary
       # if self.G.fp16 and not self.D.fp16:
       #   G_z = G_z.float()
@@ -452,9 +481,9 @@ class G_D(nn.Module):
     # Split_D means to run D once with real data and once with fake,
     # rather than concatenating along the batch dimension.
     if split_D:
-      D_fake = self.D(G_z, gy)
+      D_fake = self.D(G_z, gy, feats_g)
       if x is not None:
-        D_real = self.D(x, dy)
+        D_real = self.D(x, dy, feats)
         return D_fake, D_real
       else:
         if return_G_z:
@@ -466,10 +495,15 @@ class G_D(nn.Module):
     else:
       D_input = torch.cat([G_z, x], 0) if x is not None else G_z
       D_class = torch.cat([gy, dy], 0) if dy is not None else gy
+      if feats_g is not None:
+        D_feats = torch.cat([feats_g, feats],
+                              0) if feats is not None else feats_g
+      else:
+        D_feats = None
       if DA:
         D_input = DiffAugment(D_input, policy=policy)
       # Get Discriminator output
-      D_out = self.D(D_input, D_class)
+      D_out = self.D(D_input, D_class, D_feats)
       if x is not None:
         return torch.split(D_out, [G_z.shape[0], x.shape[0]]) # D_fake, D_real
       else:
