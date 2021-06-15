@@ -14,6 +14,8 @@ import pickle
 import psutil
 import PIL.Image
 import numpy as np
+import shutil
+
 import torch
 import dnnlib
 from torch_utils import misc
@@ -23,7 +25,7 @@ from torch_utils.ops import grid_sample_gradfix
 
 import legacy
 from metrics import metric_main
-
+import torch.distributed as dist
 #----------------------------------------------------------------------------
 
 def setup_snapshot_image_grid(training_set, random_seed=0):
@@ -86,7 +88,9 @@ def save_image_grid(img, fname, drange, grid_size):
 #----------------------------------------------------------------------------
 
 def training_loop(
+    exp_name                = 'default_name',
     run_dir                 = '.',      # Output directory.
+    temp_dir                = '.',       # Temporary directory.
     training_set_kwargs     = {},       # Options for training set.
     data_loader_kwargs      = {},       # Options for torch.utils.data.DataLoader.
     G_kwargs                = {},       # Options for generator network.
@@ -98,7 +102,9 @@ def training_loop(
     metrics                 = [],       # Metrics to evaluate during training.
     random_seed             = 0,        # Global random seed.
     num_gpus                = 1,        # Number of GPUs participating in the training.
+    slurm                   = False,    # Launching the experiment in SLURM.
     rank                    = 0,        # Rank of the current process in [0, num_gpus[.
+    local_rank              = 0,        # Local rank of the current process inside each node [0, num_gpus_per_node]
     batch_size              = 4,        # Total batch size for one training iteration. Can be larger than batch_gpu * num_gpus.
     batch_gpu               = 4,        # Number of samples processed at a time by one GPU.
     ema_kimg                = 10,       # Half-life of the exponential moving average (EMA) of generator weights.
@@ -121,7 +127,10 @@ def training_loop(
 ):
     # Initialize.
     start_time = time.time()
-    device = torch.device('cuda', rank)
+
+    device = 'cuda:{}'.format(local_rank)
+    torch.cuda.set_device(device)
+    #device = torch.device('cuda', rank)
     np.random.seed(random_seed * num_gpus + rank)
     torch.manual_seed(random_seed * num_gpus + rank)
     torch.backends.cudnn.benchmark = cudnn_benchmark    # Improves training speed.
@@ -130,12 +139,24 @@ def training_loop(
     conv2d_gradfix.enabled = True                       # Improves training speed.
     grid_sample_gradfix.enabled = True                  # Avoids errors with the augmentation pipe.
 
+    if slurm:
+        img_filename = os.path.basename(training_set_kwargs.path)
+        tmp_file_img = os.path.join(temp_dir, img_filename)
+        if local_rank == 0:
+            print('start copying data locally')
+            if not os.path.exists(tmp_file_img):
+                shutil.copy2(training_set_kwargs.path, tmp_file_img)
+            print('finished copying data locally')
+        dist.barrier()
+        training_set_kwargs.path = tmp_file_img
+        print('Final path dataset ', training_set_kwargs.path)
+
     # Load training set.
     if rank == 0:
         print('Loading training set...')
     training_set = dnnlib.util.construct_class_by_name(**training_set_kwargs) # subclass of training.dataset.Dataset
     training_set_sampler = misc.InfiniteSampler(dataset=training_set, rank=rank, num_replicas=num_gpus, seed=random_seed)
-    training_set_iterator = iter(torch.utils.data.DataLoader(dataset=training_set, sampler=training_set_sampler, batch_size=batch_size//num_gpus, **data_loader_kwargs))
+    training_set_iterator = iter(torch.utils.data.DataLoader(dataset=training_set, sampler=training_set_sampler, batch_size=batch_size, **data_loader_kwargs))
     if rank == 0:
         print()
         print('Num images: ', len(training_set))
@@ -151,13 +172,28 @@ def training_loop(
     D = dnnlib.util.construct_class_by_name(**D_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
     G_ema = copy.deepcopy(G).eval()
 
+    snapshot_pkl_last = os.path.join(run_dir, 'last_net')
     # Resume from existing pickle.
+    if num_gpus > 1:
+        dist.barrier()
     if (resume_pkl is not None) and (rank == 0):
         print(f'Resuming from "{resume_pkl}"')
         with dnnlib.util.open_url(resume_pkl) as f:
             resume_data = legacy.load_network_pkl(f)
         for name, module in [('G', G), ('D', D), ('G_ema', G_ema)]:
             misc.copy_params_and_buffers(resume_data[name], module, require_all=False)
+        print('Successfully loaded G,D,G_ema from specific pkl checkpoint')
+    else:
+        try:
+            print(f'Resuming from "{snapshot_pkl_last}".pkl')
+            with dnnlib.util.open_url(snapshot_pkl_last + '.pkl') as f:
+                resume_data = legacy.load_network_pkl(f)
+            for name, module in [('G', G), ('D', D), ('G_ema', G_ema)]:
+                misc.copy_params_and_buffers(resume_data[name], module,
+                                             require_all=False)
+            print('Successfully loaded G,D,G_ema from last checkpoint')
+        except:
+            print('Starting training from scratch')
 
     # Print network summary tables.
     if rank == 0:
@@ -213,6 +249,20 @@ def training_loop(
             phase.start_event = torch.cuda.Event(enable_timing=True)
             phase.end_event = torch.cuda.Event(enable_timing=True)
 
+    # Resume from existing checkpoint.
+    if num_gpus>1:
+        dist.barrier()
+    print('Resuming optimizers ')
+    try:
+        for phase in phases:
+            phase['opt'].load_state_dict(
+                torch.load(snapshot_pkl_last + phase['name'] + '_opt.pth',
+                           map_location=device))
+        print('All optimizers loaded from checkpoint! ')
+    except:
+        print('Could not load checkpoint! ', snapshot_pkl_last)
+        print('Starting training from scratch')
+
     # Export sample images.
     grid_size = None
     grid_z = None
@@ -247,12 +297,26 @@ def training_loop(
         print()
     cur_nimg = 0
     cur_tick = 0
+    try:
+        (cur_tick, cur_nimg) =np.load(snapshot_pkl_last + 'last_itr.npy', allow_pickle=True)
+        print('Loading last tick and nimg ', cur_tick, cur_nimg)
+    except:
+        print('No last iter to load, starting from scratch')
+
+    best_fid = 1000000
+    best_fid_nimg = 0
+    try:
+        (_, best_fid_nimg, best_fid) =np.load(os.path.join(run_dir , 'best_fid_itr.npy'), allow_pickle=True)
+        print(f'Loading best fid itr {best_fid_nimg}, value of fid is {best_fid}')
+    except:
+        print('No last iter to load for best fid, starting from scratch')
+
     tick_start_nimg = cur_nimg
     tick_start_time = time.time()
     maintenance_time = tick_start_time - start_time
     batch_idx = 0
     if progress_fn is not None:
-        progress_fn(0, total_kimg)
+        progress_fn(cur_nimg, total_kimg)
     while True:
 
         # Fetch training data.
@@ -344,10 +408,10 @@ def training_loop(
                 print()
                 print('Aborting...')
 
-        # Save image snapshot.
-        if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
-            images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
+        # # Save image snapshot.
+        # if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
+        #     images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
+        #     save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
 
         # Save network snapshot.
         snapshot_pkl = None
@@ -356,15 +420,23 @@ def training_loop(
             snapshot_data = dict(training_set_kwargs=dict(training_set_kwargs))
             for name, module in [('G', G), ('D', D), ('G_ema', G_ema), ('augment_pipe', augment_pipe)]:
                 if module is not None:
-                    if num_gpus > 1:
+                    if not slurm and num_gpus > 1:
                         misc.check_ddp_consistency(module, ignore_regex=r'.*\.w_avg')
                     module = copy.deepcopy(module).eval().requires_grad_(False).cpu()
                 snapshot_data[name] = module
                 del module # conserve memory
-            snapshot_pkl = os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl')
-            if rank == 0:
-                with open(snapshot_pkl, 'wb') as f:
+            # snapshot_pkl = os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl')
+            # if rank == 0:
+            #     with open(snapshot_pkl, 'wb') as f:
+            #         pickle.dump(snapshot_data, f)
+
+                # Save last checkpoint as well
+                with open(snapshot_pkl_last + '.pkl', 'wb') as f:
                     pickle.dump(snapshot_data, f)
+                for phase in phases:
+                    torch.save(phase['opt'].state_dict(),
+                               snapshot_pkl_last + phase['name'] + '_opt.pth')
+                np.save(snapshot_pkl_last + 'last_itr', (cur_tick, cur_nimg))
 
         # Evaluate metrics.
         if (snapshot_data is not None) and (len(metrics) > 0):
@@ -376,6 +448,21 @@ def training_loop(
                 if rank == 0:
                     metric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
                 stats_metrics.update(result_dict.results)
+
+                if metric == 'fid50k_full' and rank == 0:
+                    cur_fid = result_dict['results']['fid50k_full']
+                    if cur_fid<best_fid:
+                        print('Saving network snapshot with best FID')
+                        best_fid = cur_fid
+                        best_fid_nimg = cur_nimg
+                        snapshot_best_pkl = os.path.join(run_dir, f'best-network-snapshot.pkl')
+                        with open(snapshot_best_pkl, 'wb') as f:
+                            pickle.dump(snapshot_data, f)
+                        np.save(os.path.join(run_dir,'best_fid_itr'), (cur_tick, cur_nimg, best_fid))
+                    else: #stopping criterion : if fid stops decreasing during 10000 nimg: stop training
+                        if (cur_nimg - best_fid_nimg)//1000 > 10000:
+                            done = True
+                            print('Stopping training because FID doesn t decrease...')
         del snapshot_data # conserve memory
 
         # Collect statistics.
