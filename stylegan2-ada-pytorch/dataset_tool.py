@@ -22,6 +22,7 @@ import click
 import numpy as np
 import PIL.Image
 from tqdm import tqdm
+import h5py as h5
 
 #----------------------------------------------------------------------------
 
@@ -69,7 +70,7 @@ def open_image_folder(source_dir, *, max_images: Optional[int]):
         for idx, fname in enumerate(input_images):
             arch_fname = os.path.relpath(fname, source_dir)
             arch_fname = arch_fname.replace('\\', '/')
-            img = np.array(PIL.Image.open(fname))
+            img = np.array(PIL.Image.open(fname).convert('RGB'))
             yield dict(img=img, label=labels.get(arch_fname))
             if idx >= max_idx-1:
                 break
@@ -102,6 +103,25 @@ def open_image_zip(source, *, max_images: Optional[int]):
                 yield dict(img=img, label=labels.get(fname))
                 if idx >= max_idx-1:
                     break
+    return max_idx, iterate_images()
+
+#----------------------------------------------------------------------------
+
+def open_image_hdf5(source, *, max_images: Optional[int]):
+    with h5.File(source, 'r') as f:
+        all_imgs = f['imgs'][:]
+        all_imgs = all_imgs.transpose(0,2,3,1)
+        all_labels = f['labels'][:]
+        all_labels = all_labels.astype('int32')
+
+    max_idx = len(all_imgs)
+    print('max images is ', max_idx)
+
+    def iterate_images():
+        for idx, img in enumerate(all_imgs):
+            yield dict(img=img, label=all_labels[idx])
+            if idx >= max_idx-1:
+                break
     return max_idx, iterate_images()
 
 #----------------------------------------------------------------------------
@@ -256,7 +276,9 @@ def open_dataset(source, *, max_images: Optional[int]):
         else:
             return open_image_folder(source, max_images=max_images)
     elif os.path.isfile(source):
-        if os.path.basename(source) == 'cifar-10-python.tar.gz':
+        if source.rstrip('/').endswith('.hdf5'):
+            return open_image_hdf5(source, max_images=max_images)
+        elif os.path.basename(source) == 'cifar-10-python.tar.gz':
             return open_cifar10(source, max_images=max_images)
         elif os.path.basename(source) == 'train-images-idx3-ubyte.gz':
             return open_mnist(source, max_images=max_images)

@@ -17,6 +17,8 @@ import tempfile
 import torch
 import dnnlib
 
+import parser
+
 from training import training_loop
 from metrics import metric_main
 from torch_utils import training_stats
@@ -31,39 +33,46 @@ class UserError(Exception):
 
 def setup_training_loop_kwargs(
     # General options (not included in desc).
-    gpus       = None, # Number of GPUs: <int>, default = 1 gpu
-    snap       = None, # Snapshot interval: <int>, default = 50 ticks
-    metrics    = None, # List of metric names: [], ['fid50k_full'] (default), ...
-    seed       = None, # Random seed: <int>, default = 0
+    exp_name      = None, # Experiment name
+    slurm         = None, # Using SLURM or not <bool>
+    gpus          = None, # Number of GPUs: <int>, default = 1 gpu
+    nodes         = None, # Number of nodes: <int>, default = 1 node
+    snap          = None, # Snapshot interval: <int>, default = 50 ticks
+    metrics       = None, # List of metric names: [], ['fid50k_full'] (default), ...
+    seed          = None, # Random seed: <int>, default = 0
 
     # Dataset.
-    data       = None, # Training dataset (required): <path>
-    cond       = None, # Train conditional model based on dataset labels: <bool>, default = False
-    subset     = None, # Train with only N images: <int>, default = all
-    mirror     = None, # Augment dataset with x-flips: <bool>, default = False
+    data          = None, # Training dataset (required): <path>
+    cond          = None, # Train conditional model based on dataset labels: <bool>, default = False
+    subset        = None, # Train with only N images: <int>, default = all
+    mirror        = None, # Augment dataset with x-flips: <bool>, default = False
 
     # Base config.
-    cfg        = None, # Base config: 'auto' (default), 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar'
-    gamma      = None, # Override R1 gamma: <float>
-    kimg       = None, # Override training duration: <int>
-    batch      = None, # Override batch size: <int>
+    cfg           = None, # Base config: 'auto' (default), 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar'
+    lrate         = None, # Override learning rate: <float>
+    gamma         = None, # Override R1 gamma: <float>
+    kimg          = None, # Override training duration: <int>
+    batch         = None, # Override batch size: <int>
+    num_channel_g = None, # Override width of generator network: <int>
+    num_channel_d = None, # Override width of discriminator network: <int>
 
     # Discriminator augmentation.
-    aug        = None, # Augmentation mode: 'ada' (default), 'noaug', 'fixed'
-    p          = None, # Specify p for 'fixed' (required): <float>
-    target     = None, # Override ADA target for 'ada': <float>, default = depends on aug
-    augpipe    = None, # Augmentation pipeline: 'blit', 'geom', 'color', 'filter', 'noise', 'cutout', 'bg', 'bgc' (default), ..., 'bgcfnc'
+    aug           = None, # Augmentation mode: 'ada' (default), 'noaug', 'fixed'
+    p             = None, # Specify p for 'fixed' (required): <float>
+    target        = None, # Override ADA target for 'ada': <float>, default = depends on aug
+    augpipe       = None, # Augmentation pipeline: 'blit', 'geom', 'color', 'filter', 'noise', 'cutout', 'bg', 'bgc' (default), ..., 'bgcfnc'
 
     # Transfer learning.
-    resume     = None, # Load previous network: 'noresume' (default), 'ffhq256', 'ffhq512', 'ffhq1024', 'celebahq256', 'lsundog256', <file>, <url>
-    freezed    = None, # Freeze-D: <int>, default = 0 discriminator layers
+    resume        = None, # Load previous network: 'noresume' (default), 'ffhq256', 'ffhq512', 'ffhq1024', 'celebahq256', 'lsundog256', <file>, <url>
+    freezed       = None, # Freeze-D: <int>, default = 0 discriminator layers
 
     # Performance options (not included in desc).
-    fp32       = None, # Disable mixed-precision training: <bool>, default = False
-    nhwc       = None, # Use NHWC memory format with FP16: <bool>, default = False
-    allow_tf32 = None, # Allow PyTorch to use TF32 for matmul and convolutions: <bool>, default = False
-    nobench    = None, # Disable cuDNN benchmarking: <bool>, default = False
-    workers    = None, # Override number of DataLoader workers: <int>, default = 3
+    fp32         = None, # Disable mixed-precision training: <bool>, default = False
+    nhwc         = None, # Use NHWC memory format with FP16: <bool>, default = False
+    allow_tf32   = None, # Allow PyTorch to use TF32 for matmul and convolutions: <bool>, default = False
+    nobench      = None, # Disable cuDNN benchmarking: <bool>, default = False
+    workers      = None, # Override number of DataLoader workers: <int>, default = 3
+    **kwargs
 ):
     args = dnnlib.EasyDict()
 
@@ -76,7 +85,7 @@ def setup_training_loop_kwargs(
     assert isinstance(gpus, int)
     if not (gpus >= 1 and gpus & (gpus - 1) == 0):
         raise UserError('--gpus must be a power of two')
-    args.num_gpus = gpus
+    args.num_gpus = gpus * nodes
 
     if snap is None:
         snap = 50
@@ -164,10 +173,10 @@ def setup_training_loop_kwargs(
     spec = dnnlib.EasyDict(cfg_specs[cfg])
     if cfg == 'auto':
         desc += f'{gpus:d}'
-        spec.ref_gpus = gpus
+        spec.ref_gpus = args.num_gpus
         res = args.training_set_kwargs.resolution
-        spec.mb = max(min(gpus * min(4096 // res, 32), 64), gpus) # keep gpu memory consumption at bay
-        spec.mbstd = min(spec.mb // gpus, 4) # other hyperparams behave more predictably if mbstd group size remains fixed
+        spec.mb = max(min(args.num_gpus * min(4096 // res, 32), 64), args.num_gpus) # keep gpu memory consumption at bay
+        spec.mbstd = min(spec.mb // args.num_gpus, 4) # other hyperparams behave more predictably if mbstd group size remains fixed
         spec.fmaps = 1 if res >= 512 else 0.5
         spec.lrate = 0.002 if res >= 1024 else 0.0025
         spec.gamma = 0.0002 * (res ** 2) / spec.mb # heuristic formula
@@ -181,6 +190,15 @@ def setup_training_loop_kwargs(
     args.G_kwargs.synthesis_kwargs.num_fp16_res = args.D_kwargs.num_fp16_res = 4 # enable mixed-precision training
     args.G_kwargs.synthesis_kwargs.conv_clamp = args.D_kwargs.conv_clamp = 256 # clamp activations to avoid float16 overflow
     args.D_kwargs.epilogue_kwargs.mbstd_group_size = spec.mbstd
+
+    args.exp_name = exp_name
+    if num_channel_d is not None:
+        args.D_kwargs.channel_base = num_channel_d
+    if num_channel_g is not None:
+        args.G_kwargs.synthesis_kwargs.channel_base = num_channel_g
+
+    if lrate is not None:
+        spec.lrate = lrate
 
     args.G_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', lr=spec.lrate, betas=[0,0.99], eps=1e-8)
     args.D_opt_kwargs = dnnlib.EasyDict(class_name='torch.optim.Adam', lr=spec.lrate, betas=[0,0.99], eps=1e-8)
@@ -213,11 +231,13 @@ def setup_training_loop_kwargs(
 
     if batch is not None:
         assert isinstance(batch, int)
-        if not (batch >= 1 and batch % gpus == 0):
-            raise UserError('--batch must be at least 1 and divisible by --gpus')
+        if not (batch >= 1 and batch % args.num_gpus == 0):
+            raise UserError('--batch must be at least 1 and divisible by --gpus and --nodes')
         desc += f'-batch{batch}'
         args.batch_size = batch
-        args.batch_gpu = batch // gpus
+        args.batch_gpu = batch // (args.num_gpus)
+
+    args.slurm = slurm
 
     # ---------------------------------------------------
     # Discriminator augmentation: aug, p, target, augpipe
@@ -360,11 +380,11 @@ def setup_training_loop_kwargs(
 
 #----------------------------------------------------------------------------
 
-def subprocess_fn(rank, args, temp_dir):
+def subprocess_fn(rank, args, world_size = 1, dist_url = '', temp_dir='', slurm=False):
     dnnlib.util.Logger(file_name=os.path.join(args.run_dir, 'log.txt'), file_mode='a', should_flush=True)
 
     # Init torch.distributed.
-    if args.num_gpus > 1:
+    if not slurm and args.num_gpus > 1:
         init_file = os.path.abspath(os.path.join(temp_dir, '.torch_distributed_init'))
         if os.name == 'nt':
             init_method = 'file:///' + init_file.replace('\\', '/')
@@ -373,14 +393,25 @@ def subprocess_fn(rank, args, temp_dir):
             init_method = f'file://{init_file}'
             torch.distributed.init_process_group(backend='nccl', init_method=init_method, rank=rank, world_size=args.num_gpus)
 
-    # Init torch_utils.
-    sync_device = torch.device('cuda', rank) if args.num_gpus > 1 else None
-    training_stats.init_multiprocessing(rank=rank, sync_device=sync_device)
+        # Init torch_utils.
+        sync_device = torch.device('cuda', rank) if args.num_gpus > 1 else None
+        training_stats.init_multiprocessing(rank=rank, sync_device=sync_device)
+        local_rank = rank
+
+    elif slurm and args.num_gpus > 1:
+        rank = int(os.environ.get("SLURM_PROCID"))
+        local_rank = int(os.environ.get("SLURM_LOCALID"))
+
+        torch.distributed.init_process_group(backend='nccl', init_method=dist_url, rank=rank,
+                                             world_size=world_size)
+    else:
+        rank = local_rank = 0
+
     if rank != 0:
         custom_ops.verbosity = 'none'
 
     # Execute training loop.
-    training_loop.training_loop(rank=rank, **args)
+    training_loop.training_loop(rank=rank, local_rank=local_rank, temp_dir=temp_dir, **args)
 
 #----------------------------------------------------------------------------
 
@@ -395,47 +426,7 @@ class CommaSeparatedList(click.ParamType):
 
 #----------------------------------------------------------------------------
 
-@click.command()
-@click.pass_context
-
-# General options.
-@click.option('--outdir', help='Where to save the results', required=True, metavar='DIR')
-@click.option('--gpus', help='Number of GPUs to use [default: 1]', type=int, metavar='INT')
-@click.option('--snap', help='Snapshot interval [default: 50 ticks]', type=int, metavar='INT')
-@click.option('--metrics', help='Comma-separated list or "none" [default: fid50k_full]', type=CommaSeparatedList())
-@click.option('--seed', help='Random seed [default: 0]', type=int, metavar='INT')
-@click.option('-n', '--dry-run', help='Print training options and exit', is_flag=True)
-
-# Dataset.
-@click.option('--data', help='Training data (directory or zip)', metavar='PATH', required=True)
-@click.option('--cond', help='Train conditional model based on dataset labels [default: false]', type=bool, metavar='BOOL')
-@click.option('--subset', help='Train with only N images [default: all]', type=int, metavar='INT')
-@click.option('--mirror', help='Enable dataset x-flips [default: false]', type=bool, metavar='BOOL')
-
-# Base config.
-@click.option('--cfg', help='Base config [default: auto]', type=click.Choice(['auto', 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar']))
-@click.option('--gamma', help='Override R1 gamma', type=float)
-@click.option('--kimg', help='Override training duration', type=int, metavar='INT')
-@click.option('--batch', help='Override batch size', type=int, metavar='INT')
-
-# Discriminator augmentation.
-@click.option('--aug', help='Augmentation mode [default: ada]', type=click.Choice(['noaug', 'ada', 'fixed']))
-@click.option('--p', help='Augmentation probability for --aug=fixed', type=float)
-@click.option('--target', help='ADA target value for --aug=ada', type=float)
-@click.option('--augpipe', help='Augmentation pipeline [default: bgc]', type=click.Choice(['blit', 'geom', 'color', 'filter', 'noise', 'cutout', 'bg', 'bgc', 'bgcf', 'bgcfn', 'bgcfnc']))
-
-# Transfer learning.
-@click.option('--resume', help='Resume training [default: noresume]', metavar='PKL')
-@click.option('--freezed', help='Freeze-D [default: 0 layers]', type=int, metavar='INT')
-
-# Performance options.
-@click.option('--fp32', help='Disable mixed-precision training', type=bool, metavar='BOOL')
-@click.option('--nhwc', help='Use NHWC memory format with FP16', type=bool, metavar='BOOL')
-@click.option('--nobench', help='Disable cuDNN benchmarking', type=bool, metavar='BOOL')
-@click.option('--allow-tf32', help='Allow PyTorch to use TF32 internally', type=bool, metavar='BOOL')
-@click.option('--workers', help='Override number of DataLoader workers', type=int, metavar='INT')
-
-def main(ctx, outdir, dry_run, **config_kwargs):
+def main(args, outdir, master_node='',  dry_run=False, **config_kwargs):
     """Train a GAN using the techniques described in the paper
     "Training Generative Adversarial Networks with Limited Data".
 
@@ -482,25 +473,27 @@ def main(ctx, outdir, dry_run, **config_kwargs):
     dnnlib.util.Logger(should_flush=True)
 
     # Setup training options.
-    try:
-        run_desc, args = setup_training_loop_kwargs(**config_kwargs)
-    except UserError as err:
-        ctx.fail(err)
+    config_kwargs = vars(args)
+    run_desc, args = setup_training_loop_kwargs(**config_kwargs)
+    args.metrics = ['fid50k_full']
 
-    # Pick output directory.
-    prev_run_dirs = []
-    if os.path.isdir(outdir):
-        prev_run_dirs = [x for x in os.listdir(outdir) if os.path.isdir(os.path.join(outdir, x))]
-    prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
-    prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
-    cur_run_id = max(prev_run_ids, default=-1) + 1
-    args.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{run_desc}')
-    assert not os.path.exists(args.run_dir)
+    if args.exp_name is None:
+        # Pick output directory.
+        prev_run_dirs = []
+        if os.path.isdir(outdir):
+            prev_run_dirs = [x for x in os.listdir(outdir) if os.path.isdir(os.path.join(outdir, x))]
+        prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
+        prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
+        cur_run_id = max(prev_run_ids, default=-1) + 1
+        args.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{run_desc}')
+        assert not os.path.exists(args.run_dir)
+    else:
+        args.run_dir = os.path.join(outdir, args.exp_name)
 
     # Print options.
     print()
     print('Training options:')
-    print(json.dumps(args, indent=2))
+  #  print(json.dumps(args, indent=2))
     print()
     print(f'Output directory:   {args.run_dir}')
     print(f'Training data:      {args.training_set_kwargs.path}')
@@ -519,22 +512,40 @@ def main(ctx, outdir, dry_run, **config_kwargs):
 
     # Create output directory.
     print('Creating output directory...')
-    os.makedirs(args.run_dir)
+    if not os.path.exists(args.run_dir):
+        os.makedirs(args.run_dir, exist_ok=True)
     with open(os.path.join(args.run_dir, 'training_options.json'), 'wt') as f:
         json.dump(args, f, indent=2)
 
-    # Launch processes.
-    print('Launching processes...')
-    torch.multiprocessing.set_start_method('spawn')
-    with tempfile.TemporaryDirectory() as temp_dir:
-        if args.num_gpus == 1:
-            subprocess_fn(rank=0, args=args, temp_dir=temp_dir)
-        else:
-            torch.multiprocessing.spawn(fn=subprocess_fn, args=(args, temp_dir), nprocs=args.num_gpus)
+
+    ## Multi-gpu or multi-node training ##
+    if args.slurm:
+        n_nodes = int(os.environ.get("SLURM_JOB_NUM_NODES"))
+        n_gpus_per_node = int(os.environ.get("SLURM_TASKS_PER_NODE").split('(')[0])
+        world_size = n_gpus_per_node * n_nodes
+        dist_url = "tcp://"
+        dist_url += master_node
+        port = 40000
+        dist_url += ":" + str(port)
+        print('Dist url ', dist_url)
+        temp_dir = '/scratch/slurm_tmpdir/' + str(os.environ.get("SLURM_JOB_ID"))
+        subprocess_fn(rank=-1, args=args, world_size=world_size, dist_url=dist_url,
+                      temp_dir=temp_dir, slurm=args.slurm)
+    else:
+        # Launch processes.
+        print('Launching processes...')
+        torch.multiprocessing.set_start_method('spawn')
+        with tempfile.TemporaryDirectory() as temp_dir:
+            if args.num_gpus == 1:
+                subprocess_fn(rank=0, args=args, temp_dir=temp_dir)
+            else:
+                torch.multiprocessing.spawn(fn=subprocess_fn, args=(args, temp_dir), nprocs=args.num_gpus)
 
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main() # pylint: disable=no-value-for-parameter
+    parser_ = parser.get_parser()
+    args = parser_.parse_args()
+    main(args) # pylint: disable=no-value-for-parameter
 
 #----------------------------------------------------------------------------
