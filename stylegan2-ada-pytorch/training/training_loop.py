@@ -119,6 +119,7 @@ def training_loop(
     kimg_per_tick           = 4,        # Progress snapshot interval.
     image_snapshot_ticks    = 50,       # How often to save image snapshots? None = disable.
     network_snapshot_ticks  = 50,       # How often to save network snapshots? None = disable.
+    es_patience             = 100000000,# Early stopping patience expressed in number of images seen.
     resume_pkl              = None,     # Network pickle to resume training from.
     cudnn_benchmark         = True,     # Enable torch.backends.cudnn.benchmark?
     allow_tf32              = False,    # Enable torch.backends.cuda.matmul.allow_tf32 and torch.backends.cudnn.allow_tf32?
@@ -459,10 +460,10 @@ def training_loop(
                         with open(snapshot_best_pkl, 'wb') as f:
                             pickle.dump(snapshot_data, f)
                         np.save(os.path.join(run_dir,'best_fid_itr'), (cur_tick, cur_nimg, best_fid))
-                    else: #stopping criterion : if fid stops decreasing during 10000 nimg: stop training
-                        if (cur_nimg - best_fid_nimg)//1000 > 10000:
+                    else: #stopping criterion : if fid stops decreasing during es_patience nimg: stop training
+                        if (cur_nimg - best_fid_nimg) > es_patience:
                             done = True
-                            print('Stopping training because FID doesn t decrease...')
+                            print('Stopping training due to early stopping.')
         del snapshot_data # conserve memory
 
         # Collect statistics.

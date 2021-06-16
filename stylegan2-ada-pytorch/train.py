@@ -55,6 +55,7 @@ def setup_training_loop_kwargs(
     batch         = None, # Override batch size: <int>
     num_channel_g = None, # Override width of generator network: <int>
     num_channel_d = None, # Override width of discriminator network: <int>
+    es_patience   = None, # Early stopping patience in number of seen images: <int>
 
     # Discriminator augmentation.
     aug           = None, # Augmentation mode: 'ada' (default), 'noaug', 'fixed'
@@ -94,6 +95,7 @@ def setup_training_loop_kwargs(
         raise UserError('--snap must be at least 1')
     args.image_snapshot_ticks = snap
     args.network_snapshot_ticks = snap
+    args.es_patience = es_patience
 
     if metrics is None:
         metrics = ['fid50k_full']
