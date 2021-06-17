@@ -232,7 +232,6 @@ def train(rank, world_size, config, dist_url):
 
     D_batch_size = (config['batch_size'] * config['num_D_steps']
                     * config['num_D_accumulations'])
-    model_type = 'BigGAN'
 
     if config['longtail']:
         samples_per_class = np.load('imagenet_lt/imagenet_lt_samples_per_class.npy',
@@ -261,7 +260,7 @@ def train(rank, world_size, config, dist_url):
            'drop_last':True})
 
     # Prepare inception metrics: FID and IS
-    is_moments_prefix = 'I' # if config['which_dataset'] == 'imagenet' else 'COCO'
+    is_moments_prefix = 'I' if config['which_dataset'] == 'imagenet' else 'COCO'
 
     im_filename = '%s%i_%s' % (
         is_moments_prefix,
@@ -286,11 +285,39 @@ def train(rank, world_size, config, dist_url):
                                    'longtail_temperature'],
                                class_probabilities=class_probabilities)
 
+    # Balance instance sampling for ImageNet-LT
+    weights_sampling = None
+    if config['longtail'] and config['use_balanced_sampler'] and config['instance_cond']:
+        if config['which_knn_balance'] == 'center_balance':
+            print('Balancing the instance features.'
+                  'Using custom temperature distrib?',
+                  config['custom_distrib_gen'], ' with temperature',
+                  config['longtail_temperature'])
+            weights_sampling = utils.make_weights_for_balanced_classes(
+                train_loader.dataset.labels, 1000,
+                config['custom_distrib_gen'],
+                config['longtail_temperature'],
+                samples_per_class=samples_per_class,
+                class_probabilities=class_probabilities)
+        # Balancing the NN classes (p(y))
+        elif config['which_knn_balance'] == 'nnclass_balance':
+            print('Balancing the class distribution (classes drawn from the neighbors).'
+                  ' Using custom temperature distrib?',
+                  config['custom_distrib_gen'], ' with temperature',
+                  config['longtail_temperature'])
+            weights_sampling = torch.exp(
+                class_probabilities / config['longtail_temperature']) / \
+                               torch.sum(torch.exp(class_probabilities / config['longtail_temperature']))
 
+    # Configure conditioning sampling function to train G
     sample_conditioning = functools.partial(
         utils.sample_conditioning_values,
-        z_=z_, y_=y_, model_type=model_type,
-        ddp=True, constant_conditioning=config['constant_conditioning'])
+        z_=z_, y_=y_, dataset=train_dataset,
+        batch_size=G_batch_size,
+        weights_sampling=weights_sampling,
+        ddp=config['ddp_train'], constant_conditioning=config['constant_conditioning'],
+        class_cond=config['class_cond'], instance_cond=config['instance_cond'],
+        nn_sampling_strategy=config['which_knn_balance'])
 
     print('G batch size ', G_batch_size)
     # Loaders are loaded, prepare the training function
@@ -308,7 +335,8 @@ def train(rank, world_size, config, dist_url):
                                                 config['use_ema']
                                   else G),
                                sample_conditioning_func=sample_conditioning,
-                               config=config, model_type=model_type)
+                               config=config, class_cond=config['class_cond'],
+                               instance_cond=config['instance_cond'],)
 
     print('Beginning training at epoch %d...' % state_dict['epoch'])
     # Train for specified number of epochs, although we mostly track G iterations.
@@ -335,8 +363,12 @@ def train(rank, world_size, config, dist_url):
         for i, batch in enumerate(pbar):
             # if i> 5:
             #     break
-            in_label = None
-            if config['class_cond']:
+            in_label, in_feat = None, None
+            if config['instance_cond'] and config['class_cond']:
+                x, in_label, in_feat, _ = batch
+            elif config['instance_cond']:
+                x, in_feat, _ = batch
+            elif config['class_cond']:
                 x, in_label = batch
                 if config['constant_conditioning']:
                     in_label = torch.zeros_like(in_label)
@@ -346,6 +378,8 @@ def train(rank, world_size, config, dist_url):
             x = x.to(device, non_blocking=True)
             if in_label is not None:
                 in_label = in_label.to(device,non_blocking=True)
+            if in_feat is not None:
+                in_feat = in_feat.float().to(device, non_blocking=True)
           # Increment the iteration counter
             state_dict['itr'] += 1
             # Make sure G and D are in training mode, just in case they got set to eval
@@ -355,7 +389,7 @@ def train(rank, world_size, config, dist_url):
             if config['ema']:
                 G_ema.train()
 
-            metrics = train(x, in_label)
+            metrics = train(x, in_label, in_feat)
          #   print('After training step ', time.time() - s_stratified)
           #  s_stratified = time.time()
             if rank == 0:
