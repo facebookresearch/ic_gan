@@ -683,9 +683,9 @@ def get_dataset_hdf5(resolution, data_path, augment=False,longtail=False,
                 local_rank=0, copy_locally=False, ddp=True, tmp_dir='',
                 class_cond=True, instance_cond=False, feature_extractor='classification',
                 backbone_feature_extractor='resnext50',
-                 which_nn_balance='instance_balance', which_dataset='imagenet',
-                 test_part=False, kmeans_subsampled=-1, n_subsampled_data=-1,
-                     filter_hd=-1, k_nn=50, **kwargs):
+                which_nn_balance='instance_balance', which_dataset='imagenet',
+                test_part=False, kmeans_subsampled=-1, n_subsampled_data=-1,
+                feature_augmentation=False, filter_hd=-1, k_nn=50, **kwargs):
 
     dataset_name_prefix = 'ILSVRC' if which_dataset == 'imagenet' else 'COCO'
     # HDF5 file name
@@ -751,6 +751,7 @@ def get_dataset_hdf5(resolution, data_path, augment=False,longtail=False,
                                     which_nn_balance=which_nn_balance,
                                     kmeans_file=kmeans_file,
                                     n_subsampled_data=n_subsampled_data,
+                                    feature_augmentation=feature_augmentation,
                                     filter_hd=filter_hd)
     return dataset
 
