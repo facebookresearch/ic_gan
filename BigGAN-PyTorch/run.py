@@ -29,13 +29,12 @@ if __name__ == "__main__":
                            config['num_D_steps']
 
 
-    # config['G_shared'] = True
-    # if config['instance_cond']:
-    #     config['G_shared_feat'] = True
+
 
     trainer = Trainer()
     # import numpy as np
-    # np.save('new_dict_debug', config)
+    # np.save('new_dict_'+config['experiment_name'], config)
+    # exit()
     if config['run_setup'] == 'local_debug':
         trainer(config)
     else:

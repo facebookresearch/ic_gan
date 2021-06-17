@@ -2,7 +2,7 @@
   "experiment_name": "unconditional_biggan_class_cond_res64",
   "data_root": "../..//anyshot_longtail/data",
   "base_root": "/checkpoint/acasanova/ic_gan/64x64",
-  "run_setup": "local_debug",
+  "run_setup": "slurm",
   "deterministic_run": true,
   "seed": 0,
   "num_workers": 10,
