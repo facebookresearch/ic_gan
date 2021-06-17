@@ -541,8 +541,8 @@ def main(args, outdir, master_node='',  dry_run=False, **config_kwargs):
             if args.num_gpus == 1:
                 subprocess_fn(rank=0, args=args, temp_dir=temp_dir)
             else:
-                torch.multiprocessing.spawn(fn=subprocess_fn, args=(args, temp_dir), nprocs=args.num_gpus)
-
+                torch.multiprocessing.spawn(fn=subprocess_fn, args=(args, args.num_gpus, '', temp_dir),
+                                            nprocs=args.num_gpus)
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
