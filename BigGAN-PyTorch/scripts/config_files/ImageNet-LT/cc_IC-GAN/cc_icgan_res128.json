@@ -7,9 +7,7 @@
   "seed": 0,
   "num_workers": 10,
 
-  "ddp_train": false,
-  "parallel": true,
-  "use_checkpointable_sampler": true,
+  "ddp_train": true,
   "n_nodes": 1,
   "n_gpus_per_node": 2,
   "hflips": true,
@@ -31,7 +29,7 @@
 
   "class_cond": true,
   "instance_cond": true,
-  "which_knn_balance": "nnclass_balance",
+  "which_knn_balance": "instance_balance",
   "hier": true,
   "resolution": 128,
   "G_attn": "64",
