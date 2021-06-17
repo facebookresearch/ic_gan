@@ -104,8 +104,8 @@ def prepare_parser():
         '--feature_augmentation', action='store_true', default=False,
         help='use hflips in instance conditionings (default: %(default)s)')
     parser.add_argument(
-        '--which_knn_balance', type=str, default='center_balance',
-        choices=['center_balance', 'nnclass_balance'],
+        '--which_knn_balance', type=str, default='instance_balance',
+        choices=['instance_balance', 'nnclass_balance'],
         help='Class balancing either done at the instance level or at the class level.')
     parser.add_argument(
         '--G_shared_feat', action='store_true', default=False,
@@ -123,8 +123,8 @@ def prepare_parser():
         choices=['classification','selfsupervised'],
         help='Choice of feature extractor')
     parser.add_argument(
-        '--backbone_feature_extractor', type=str, default='resnext50',
-        choices=['resnext50','resnet50'],
+        '--backbone_feature_extractor', type=str, default='resnet50',
+        choices=['resnet50'],
         help='Choice of feature extractor backbone')
 
     parser.add_argument(
@@ -683,7 +683,7 @@ def get_dataset_hdf5(resolution, data_path, augment=False,longtail=False,
                 local_rank=0, copy_locally=False, ddp=True, tmp_dir='',
                 class_cond=True, instance_cond=False, feature_extractor='classification',
                 backbone_feature_extractor='resnext50',
-                 which_nn_balance='center_balance', which_dataset='imagenet',
+                 which_nn_balance='instance_balance', which_dataset='imagenet',
                  test_part=False, kmeans_subsampled=-1, n_subsampled_data=-1,
                      filter_hd=-1, k_nn=50, **kwargs):
 
@@ -747,7 +747,7 @@ def get_dataset_hdf5(resolution, data_path, augment=False,longtail=False,
                                      transform=transform_list,
                                     load_labels= class_cond, load_features=instance_cond,
                                     load_in_mem_images=False, load_in_mem_labels=True,
-                                    load_in_mem_feats=True, k_nn=k_nn,
+                                    load_in_mem_feats=False, k_nn=k_nn,
                                     which_nn_balance=which_nn_balance,
                                     kmeans_file=kmeans_file,
                                     n_subsampled_data=n_subsampled_data,
@@ -1234,7 +1234,7 @@ def progress(items, desc='', total=None, min_delay=0.1, displaytype='s1k'):
 def sample_conditioning_values(z_, y_, ddp=False, batch_size=1, weights_sampling=None,
                                dataset=None, constant_conditioning=False,
                                class_cond=True, instance_cond=False,
-                               nn_sampling_strategy='center_balance'):
+                               nn_sampling_strategy='instance_balance'):
     with torch.no_grad():
       z_.sample_()
       if class_cond and not instance_cond:
@@ -1247,8 +1247,8 @@ def sample_conditioning_values(z_, y_, ddp=False, batch_size=1, weights_sampling
           else:
             return z_, y_.data.clone()
       else:
-        if nn_sampling_strategy == 'center_balance':
-          sampling_funct_name = dataset.sample_conditioning_center_balance
+        if nn_sampling_strategy == 'instance_balance':
+          sampling_funct_name = dataset.sample_conditioning_instance_balance
         elif nn_sampling_strategy == 'nnclass_balance':
           sampling_funct_name = dataset.sample_conditioning_nnclass_balance
 
@@ -1266,7 +1266,7 @@ def sample(G, sample_conditioning_func, config, class_cond=True, instance_cond=F
         z_, y_ = conditioning
         y_ = y_.long()
         y_ = y_.to(device,non_blocking=True)
-
+        feats_ = None
       elif instance_cond and not class_cond:
         z_, feats_ = conditioning
         feats_ = feats_.to(device,non_blocking=True)

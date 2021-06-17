@@ -201,7 +201,7 @@ class ILSVRC_HDF5_feats(data.Dataset):
   def __init__(self, root, root_feats=None, root_nns=None, transform=None,
                target_transform=None, load_labels=True, load_features=True,
                load_in_mem_images=False, load_in_mem_labels=False,
-               load_in_mem_feats=False, k_nn=4, which_nn_balance='center_balance',
+               load_in_mem_feats=False, k_nn=4, which_nn_balance='instance_balance',
                kmeans_file=None, n_subsampled_data=-1, filter_hd=-1,label_dim=0,
                **kwargs):
     #TODO: feature augmentation
@@ -345,7 +345,7 @@ class ILSVRC_HDF5_feats(data.Dataset):
       print('Num images new ', self.num_imgs)
 
 
-  def sample_conditioning_center_balance(self, batch_size, weights=None):
+  def sample_conditioning_instance_balance(self, batch_size, weights=None):
     """
     weights: sampling weights for each of the instances in the dataset.
     """
@@ -477,9 +477,8 @@ class ILSVRC_HDF5_feats(data.Dataset):
           feat /= np.linalg.norm(feat, keepdims=True)
         else:
           feat = []
-          print('Entering in idx feat list')
           for sl_idx in index:
-            feat.append(f['feats'][sl_idx][np.newaxis, ...])
+            feat.append(f['feats'][sl_idx].astype('float')[np.newaxis, ...])
           feat = np.concatenate(feat)
           feat /= np.linalg.norm(feat, axis=1, keepdims=True)
     return feat
@@ -487,7 +486,7 @@ class ILSVRC_HDF5_feats(data.Dataset):
   def get_instance_features_and_nn(self, index):
     # Standard sampling: Obtain a feature vector for the input index,
     # and image/class label for a neighbor.
-    if self.which_nn_balance == 'center_balance':
+    if self.which_nn_balance == 'instance_balance':
       idx_h = index
       #If we are only using a selected number of instances (kmeans), re-choose the index
       if self.kmeans_samples is not None:
@@ -504,7 +503,7 @@ class ILSVRC_HDF5_feats(data.Dataset):
       idx_nn = index
     else:
       raise ValueError('No other sampling method has been defined. '
-                       'Choose which_nn_balance in [center_balance,nnclass_balance].')
+                       'Choose which_nn_balance in [instance_balance,nnclass_balance].')
 
     # Index selects the instance feature vector
     radii = self.sample_nn_radius[idx_h]

@@ -16,7 +16,7 @@ def dummy_training_function():
 
 def GAN_training_function(G, D, GD, ema, state_dict, config, sample_conditionings,
                           embedded_optimizers=True, device='cuda', batch_size=0):
-  def train(x, y):
+  def train(x, y=None, features=None):
     if embedded_optimizers:
       G.optim.zero_grad()
       D.optim.zero_grad()
@@ -25,7 +25,12 @@ def GAN_training_function(G, D, GD, ema, state_dict, config, sample_conditioning
       GD.optimizer_G.zero_grad()
     # How many chunks to split x and y into?
     x = torch.split(x, batch_size)
-    y = torch.split(y, batch_size)
+    if y is not None:
+      y = torch.split(y, batch_size)
+    if features is not None:
+      f_ = torch.split(features, batch_size)
+    else:
+      f_ = None
     counter = 0
 
     # Optionally toggle D and G's "require_grad"
@@ -40,13 +45,27 @@ def GAN_training_function(G, D, GD, ema, state_dict, config, sample_conditioning
       else:
         GD.optimizer_D.zero_grad()
       for accumulation_index in range(config['num_D_accumulations']):
-        z_, labels_g = sample_conditionings()
-        labels_g = labels_g[:batch_size].to(device, non_blocking=True).long()
+        # Sample conditioning for G
+        sampled_cond = sample_conditionings()
+        labels_g, f_g = None, None
+        if features is not None and y is not None:
+          z_, labels_g, f_g = sampled_cond
+        elif y is not None:
+          z_, labels_g = sampled_cond
+        elif features is not None:
+          z_, f_g = sampled_cond
+        # Tensors to device
+        if labels_g is not None:
+          labels_g = labels_g[:batch_size].to(device, non_blocking=True).long()
+        if f_g is not None:
+          f_g = f_g[:batch_size].to(device, non_blocking=True)
         z_ = z_[:batch_size].to(device, non_blocking=True)
-        D_fake, D_real = GD(z_, labels_g,
-                            x[counter], y[counter], train_G=False,
-                            split_D=config['split_D'], policy=config['DiffAugment'],
-                            DA=config['DA'])
+        # Obtain discriminator scores
+        D_fake, D_real = GD(z_, labels_g, f_g,
+                            x[counter], y[counter] if y is not None else None,
+                            f_[counter] if f_ is not None else None,
+                            train_G=False, split_D=config['split_D'],
+                            policy=config['DiffAugment'], DA=config['DA'])
 
         # Compute components of D's loss, average them, and divide by
         # the number of gradient accumulations
@@ -80,10 +99,23 @@ def GAN_training_function(G, D, GD, ema, state_dict, config, sample_conditioning
     counter = 0
     # If accumulating gradients, loop multiple times
     for accumulation_index in range(config['num_G_accumulations']):
-      z_, labels_g = sample_conditionings()
-      labels_g = labels_g.to(device, non_blocking=True).long()
+      # Sample conditioning for G
+      sampled_cond = sample_conditionings()
+      labels_g, f_g = None, None
+      if features is not None and y is not None:
+        z_, labels_g, f_g = sampled_cond
+      elif y is not None:
+        z_, labels_g = sampled_cond
+      elif features is not None:
+        z_, f_g = sampled_cond
+      # Tensors to device
+      if labels_g is not None:
+        labels_g = labels_g.to(device, non_blocking=True).long()
+      if f_g is not None:
+        f_g = f_g.to(device, non_blocking=True)
       z_ = z_.to(device, non_blocking=True)
-      D_fake = GD(z_, labels_g, train_G=True, split_D=config['split_D'],
+      # Obtain discriminator scores
+      D_fake = GD(z_, labels_g, f_g, train_G=True, split_D=config['split_D'],
                   policy=config['DiffAugment'], DA=config['DA'])
       G_loss = losses.generator_loss(D_fake) / float(config['num_G_accumulations'])
       G_loss.backward()
