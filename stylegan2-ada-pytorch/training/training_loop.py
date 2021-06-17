@@ -141,16 +141,16 @@ def training_loop(
     grid_sample_gradfix.enabled = True                  # Avoids errors with the augmentation pipe.
 
     if slurm:
-        img_filename = os.path.basename(training_set_kwargs.path)
+        img_filename = os.path.basename(training_set_kwargs.root)
         tmp_file_img = os.path.join(temp_dir, img_filename)
         if local_rank == 0:
             print('start copying data locally')
             if not os.path.exists(tmp_file_img):
-                shutil.copy2(training_set_kwargs.path, tmp_file_img)
+                shutil.copy2(training_set_kwargs.root, tmp_file_img)
             print('finished copying data locally')
         dist.barrier()
-        training_set_kwargs.path = tmp_file_img
-        print('Final path dataset ', training_set_kwargs.path)
+        training_set_kwargs.root = tmp_file_img
+        print('Final path dataset ', training_set_kwargs.root)
 
     # Load training set.
     if rank == 0:
@@ -161,14 +161,14 @@ def training_loop(
     if rank == 0:
         print()
         print('Num images: ', len(training_set))
-        print('Image shape:', training_set.image_shape)
-        print('Label shape:', training_set.label_shape)
+        print('Image shape:', training_set.resolution)
+        print('Label shape:', training_set.label_dim)
         print()
 
     # Construct networks.
     if rank == 0:
         print('Constructing networks...')
-    common_kwargs = dict(c_dim=training_set.label_dim, img_resolution=training_set.resolution, img_channels=training_set.num_channels)
+    common_kwargs = dict(c_dim=training_set.label_dim, img_resolution=training_set.resolution, img_channels=3)
     G = dnnlib.util.construct_class_by_name(**G_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
     D = dnnlib.util.construct_class_by_name(**D_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
     G_ema = copy.deepcopy(G).eval()
@@ -268,7 +268,7 @@ def training_loop(
     grid_size = None
     grid_z = None
     grid_c = None
-    if rank == 0:
+    if rank == 0 and False:
         print('Exporting sample images...')
         grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
         save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
@@ -319,15 +319,23 @@ def training_loop(
     if progress_fn is not None:
         progress_fn(cur_nimg, total_kimg)
     while True:
-
         # Fetch training data.
         with torch.autograd.profiler.record_function('data_fetch'):
-            phase_real_img, phase_real_c = next(training_set_iterator)
-            phase_real_img = (phase_real_img.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
+            if not training_set_kwargs.load_features:
+                phase_real_img, phase_real_c = next(training_set_iterator)
+                phase_real_img = (phase_real_img.to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)
+                all_gen_c = [training_set.get_label(np.random.randint(len(training_set))) for _ in
+                             range(len(phases) * batch_size)]  # take random labels
+
+            else:
+                phase_real_img, phase_real_c, radii = next(training_set_iterator)
+                all_gen_c = [training_set.get_instance_features(np.random.randint(len(training_set))) for _ in
+                                 range(len(phases) * batch_size)]  # take random labels
+                phase_real_img = phase_real_img.to(device).to(torch.float32).split(batch_gpu)   # images in datasets_common are already in range [-1,1]
+
             phase_real_c = phase_real_c.to(device).split(batch_gpu)
             all_gen_z = torch.randn([len(phases) * batch_size, G.z_dim], device=device)
             all_gen_z = [phase_gen_z.split(batch_gpu) for phase_gen_z in all_gen_z.split(batch_size)]
-            all_gen_c = [training_set.get_label(np.random.randint(len(training_set))) for _ in range(len(phases) * batch_size)]
             all_gen_c = torch.from_numpy(np.stack(all_gen_c)).pin_memory().to(device)
             all_gen_c = [phase_gen_c.split(batch_gpu) for phase_gen_c in all_gen_c.split(batch_size)]
 
