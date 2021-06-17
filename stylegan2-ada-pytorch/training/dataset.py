@@ -27,13 +27,14 @@ class Dataset(torch.utils.data.Dataset):
         name,                   # Name of the dataset.
         raw_shape,              # Shape of the raw image data (NCHW).
         max_size    = None,     # Artificially limit the size of the dataset. None = no limit. Applied before xflip.
-        use_labels  = False,    # Enable conditioning labels? False = label dimension is zero.
+        load_labels  = False,    # Enable conditioning labels? False = label dimension is zero.
         xflip       = False,    # Artificially double the size of the dataset via x-flips. Applied after max_size.
         random_seed = 0,        # Random seed to use when applying max_size.
+        **kwargs
     ):
         self._name = name
         self._raw_shape = list(raw_shape)
-        self._use_labels = use_labels
+        self._load_labels = load_labels
         self._raw_labels = None
         self._label_shape = None
 
@@ -51,7 +52,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def _get_raw_labels(self, idx):
         if self._raw_labels is None:
-            self._raw_labels = self._load_raw_labels(idx) if self._use_labels else None
+            self._raw_labels = self._load_raw_labels(idx) if self._load_labels else None
             if self._raw_labels is None:
                 self._raw_labels = np.zeros([self._raw_shape[0], 0], dtype=np.float32)
             #assert isinstance(self._raw_labels, np.ndarray)
@@ -154,11 +155,11 @@ class Dataset(torch.utils.data.Dataset):
 
 class ImageFolderDataset(Dataset):
     def __init__(self,
-        path,                   # Path to directory or zip.
+        root,                   # Path to directory or zip.
         resolution      = None, # Ensure specific resolution, None = highest available.
         **super_kwargs,         # Additional arguments for the Dataset base class.
     ):
-        self._path = path
+        self._path = root
         self._zipfile = None
 
         if os.path.isdir(self._path):

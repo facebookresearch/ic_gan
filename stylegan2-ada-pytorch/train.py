@@ -8,8 +8,9 @@
 
 """Train a GAN using the techniques described in the paper
 "Training Generative Adversarial Networks with Limited Data"."""
-
+import sys
 import os
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import click
 import re
 import json
@@ -23,6 +24,8 @@ from training import training_loop
 from metrics import metric_main
 from torch_utils import training_stats
 from torch_utils import custom_ops
+
+from torchvision import transforms
 
 #----------------------------------------------------------------------------
 
@@ -43,9 +46,15 @@ def setup_training_loop_kwargs(
 
     # Dataset.
     data          = None, # Training dataset (required): <path>
-    cond          = None, # Train conditional model based on dataset labels: <bool>, default = False
+    load_labels = None,
     subset        = None, # Train with only N images: <int>, default = all
     mirror        = None, # Augment dataset with x-flips: <bool>, default = False
+    # IC-GAN dataset parameters.
+    root_feats=None,
+    root_nns=None,
+    load_features=None,
+    label_dim=None,
+    load_in_mem_feats=None,
 
     # Base config.
     cfg           = None, # Base config: 'auto' (default), 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar'
@@ -115,27 +124,34 @@ def setup_training_loop_kwargs(
 
     assert data is not None
     assert isinstance(data, str)
-    args.training_set_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=data, use_labels=True, max_size=None, xflip=False)
+    if load_features:
+        class_name = 'data_utils.datasets_common.ILSVRC_HDF5_feats'
+    else:
+        class_name = 'training.dataset.ImageFolderDataset'
+    args.training_set_kwargs = dnnlib.EasyDict(class_name=class_name, root=data, load_labels=load_labels, max_size=None, xflip=False, load_features = load_features,
+                                               root_feats =root_feats, root_nns = root_nns,
+                                               transform = None, load_in_mem_feats = load_in_mem_feats, label_dim=label_dim)
     args.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, num_workers=3, prefetch_factor=2)
     try:
         training_set = dnnlib.util.construct_class_by_name(**args.training_set_kwargs) # subclass of training.dataset.Dataset
         args.training_set_kwargs.resolution = training_set.resolution # be explicit about resolution
-        args.training_set_kwargs.use_labels = training_set.has_labels # be explicit about labels
+        if class_name == 'training.dataset.ImageFolderDataset':
+            args.training_set_kwargs.load_labels = training_set.has_labels # be explicit about labels
         args.training_set_kwargs.max_size = len(training_set) # be explicit about dataset size
-        desc = training_set.name
+        desc = os.path.splitext(os.path.basename(data))[0]
         del training_set # conserve memory
     except IOError as err:
         raise UserError(f'--data: {err}')
 
-    if cond is None:
-        cond = False
-    assert isinstance(cond, bool)
-    if cond:
-        if not args.training_set_kwargs.use_labels:
+
+    if load_labels:
+        if not args.training_set_kwargs.load_labels:
             raise UserError('--cond=True requires labels specified in dataset.json')
         desc += '-cond'
     else:
-        args.training_set_kwargs.use_labels = False
+        args.training_set_kwargs.load_labels = False
+    if load_features and not load_labels:
+        args.training_set_kwargs.label_dim=2048
 
     if subset is not None:
         assert isinstance(subset, int)
@@ -152,6 +168,7 @@ def setup_training_loop_kwargs(
     if mirror:
         desc += '-mirror'
         args.training_set_kwargs.xflip = True
+        args.training_set_kwargs.transform = transforms.RandomHorizontalFlip()
 
     # ------------------------------------
     # Base config: cfg, gamma, kimg, batch
@@ -394,7 +411,6 @@ def subprocess_fn(rank, args, world_size = 1, dist_url = '', temp_dir='', slurm=
         else:
             init_method = f'file://{init_file}'
             torch.distributed.init_process_group(backend='nccl', init_method=init_method, rank=rank, world_size=args.num_gpus)
-
         # Init torch_utils.
         sync_device = torch.device('cuda', rank) if args.num_gpus > 1 else None
         training_stats.init_multiprocessing(rank=rank, sync_device=sync_device)
@@ -403,7 +419,6 @@ def subprocess_fn(rank, args, world_size = 1, dist_url = '', temp_dir='', slurm=
     elif slurm and args.num_gpus > 1:
         rank = int(os.environ.get("SLURM_PROCID"))
         local_rank = int(os.environ.get("SLURM_LOCALID"))
-
         torch.distributed.init_process_group(backend='nccl', init_method=dist_url, rank=rank,
                                              world_size=world_size)
     else:
@@ -498,12 +513,12 @@ def main(args, outdir, master_node='',  dry_run=False, **config_kwargs):
   #  print(json.dumps(args, indent=2))
     print()
     print(f'Output directory:   {args.run_dir}')
-    print(f'Training data:      {args.training_set_kwargs.path}')
+    print(f'Training data:      {args.training_set_kwargs.root}')
     print(f'Training duration:  {args.total_kimg} kimg')
     print(f'Number of GPUs:     {args.num_gpus}')
     print(f'Number of images:   {args.training_set_kwargs.max_size}')
     print(f'Image resolution:   {args.training_set_kwargs.resolution}')
-    print(f'Conditional model:  {args.training_set_kwargs.use_labels}')
+    print(f'Conditional model:  {args.training_set_kwargs.load_labels}')
     print(f'Dataset x-flips:    {args.training_set_kwargs.xflip}')
     print()
 
@@ -541,8 +556,8 @@ def main(args, outdir, master_node='',  dry_run=False, **config_kwargs):
             if args.num_gpus == 1:
                 subprocess_fn(rank=0, args=args, temp_dir=temp_dir)
             else:
-                torch.multiprocessing.spawn(fn=subprocess_fn, args=(args, args.num_gpus, '', temp_dir),
-                                            nprocs=args.num_gpus)
+                torch.multiprocessing.spawn(fn=subprocess_fn, args=(args,args.num_gpus, '',temp_dir), nprocs=args.num_gpus)
+
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
