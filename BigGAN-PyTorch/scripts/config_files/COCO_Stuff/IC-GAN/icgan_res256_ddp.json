@@ -11,9 +11,10 @@
   "ddp_train": true,
   "n_nodes": 2,
   "n_gpus_per_node": 8,
-  "hflips": false,
+  "hflips": true,
   "DA": true,
   "DiffAugment": "translation",
+  "feature_augmentation": true,
 
   "test_every": 5,
   "save_every": 1,
@@ -39,7 +40,7 @@
   "G_shared": true,
   "G_shared_feat": true,
 
-  "k_nn": 50,
+  "k_nn": 5,
   "feature_extractor": "selfsupervised",
 
   "batch_size": 16,
