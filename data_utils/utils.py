@@ -357,7 +357,8 @@ def get_dataset_hdf5(resolution, data_path, augment=False,longtail=False,
             if instance_cond:
                 shutil.copy2(data_path_feats, tmp_file_feats)
         data_path_xy = tmp_file
-        data_path_feats = tmp_file_feats
+        if instance_cond:
+            data_path_feats = tmp_file_feats
 
         # Wait for the main process to copy the data locally
         if ddp:
