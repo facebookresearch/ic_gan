@@ -31,8 +31,8 @@ def get_parser():
     # parser.add_argument('--cond',
     #                     help='Train conditional model based on dataset labels [default: false]',
     #                     type=bool, metavar='BOOL')
-    parser.add_argument('--load_labels',
-                        help='Use instance features to condition model [default: false]',
+    parser.add_argument('--class_cond',
+                        help='Use class labels to condition model [default: false]',
                         type=bool, metavar='BOOL')
     parser.add_argument('--subset',
                         help='Train with only N images [default: all]',
@@ -41,7 +41,7 @@ def get_parser():
                         help='Enable dataset x-flips [default: false]',
                         type=bool, metavar='BOOL')
     parser.add_argument('--label_dim',
-                        help='nb of cases in case labels are used', default=1000,
+                        help='nb of classes when using class conditioning', default=1000,
                         type=int, metavar='INT')
 
     # IC-GAN options for Dataset.
@@ -51,11 +51,11 @@ def get_parser():
     parser.add_argument('--root_nns', help='NN Training data for each instance conditioning (hdf5 file)',
                         metavar='PATH', required=False,
                         default='')
-    parser.add_argument('--load_features',
+    parser.add_argument('--instance_cond',
                         help='Use instance features to condition model [default: false]',
                         type=bool, metavar='BOOL')
-    parser.add_argument('--load_in_mem_feats',
-                        help='load in memory the instance features [default: false]',
+    parser.add_argument('--feature_augmentation',
+                        help='Use horizontal flips in instances to obtain instance features [default: false]',
                         type=bool, metavar='BOOL')
 
     # Base config.

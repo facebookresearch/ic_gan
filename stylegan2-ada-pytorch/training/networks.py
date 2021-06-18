@@ -175,10 +175,12 @@ class MappingNetwork(torch.nn.Module):
     def __init__(self,
         z_dim,                      # Input latent (Z) dimensionality, 0 = no latent.
         c_dim,                      # Conditioning label (C) dimensionality, 0 = no label.
+        h_dim,                   # Conditioning instance (H) dimensionality, 0 = no features.
         w_dim,                      # Intermediate latent (W) dimensionality.
         num_ws,                     # Number of intermediate latents to output, None = do not broadcast.
         num_layers      = 8,        # Number of mapping layers.
         embed_features  = None,     # Label embedding dimensionality, None = same as w_dim.
+        embed_features_feat = None,  # Instance embedding dimensionality, None = same as w_dim.
         layer_features  = None,     # Number of intermediate features in the mapping layers, None = same as w_dim.
         activation      = 'lrelu',  # Activation function: 'relu', 'lrelu', etc.
         lr_multiplier   = 0.01,     # Learning rate multiplier for the mapping layers.
@@ -187,6 +189,7 @@ class MappingNetwork(torch.nn.Module):
         super().__init__()
         self.z_dim = z_dim
         self.c_dim = c_dim
+        self.h_dim = h_dim
         self.w_dim = w_dim
         self.num_ws = num_ws
         self.num_layers = num_layers
@@ -194,14 +197,20 @@ class MappingNetwork(torch.nn.Module):
 
         if embed_features is None:
             embed_features = w_dim
+        if embed_features_feat is None:
+            embed_features_feat = w_dim
         if c_dim == 0:
             embed_features = 0
+        if h_dim == 0:
+            embed_features_feat = 0
         if layer_features is None:
             layer_features = w_dim
-        features_list = [z_dim + embed_features] + [layer_features] * (num_layers - 1) + [w_dim]
+        features_list = [z_dim + embed_features + embed_features_feat] + [layer_features] * (num_layers - 1) + [w_dim]
 
         if c_dim > 0:
             self.embed = FullyConnectedLayer(c_dim, embed_features)
+        if h_dim > 0:
+            self.embed_feats = FullyConnectedLayer(h_dim, embed_features_feat)
         for idx in range(num_layers):
             in_features = features_list[idx]
             out_features = features_list[idx + 1]
@@ -211,7 +220,7 @@ class MappingNetwork(torch.nn.Module):
         if num_ws is not None and w_avg_beta is not None:
             self.register_buffer('w_avg', torch.zeros([w_dim]))
 
-    def forward(self, z, c, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False):
+    def forward(self, z, c, h, truncation_psi=1, truncation_cutoff=None, skip_w_avg_update=False):
         # Embed, normalize, and concat inputs.
         x = None
         with torch.autograd.profiler.record_function('input'):
@@ -222,6 +231,10 @@ class MappingNetwork(torch.nn.Module):
                 misc.assert_shape(c, [None, self.c_dim])
                 y = normalize_2nd_moment(self.embed(c.to(torch.float32)))
                 x = torch.cat([x, y], dim=1) if x is not None else y
+            if self.h_dim > 0:
+                misc.assert_shape(h, [None, self.h_dim])
+                h = normalize_2nd_moment(self.embed_feats(h.to(torch.float32)))
+                x = torch.cat([x, h], dim=1) if x is not None else h
 
         # Main layers.
         for idx in range(self.num_layers):
@@ -478,6 +491,7 @@ class Generator(torch.nn.Module):
     def __init__(self,
         z_dim,                      # Input latent (Z) dimensionality.
         c_dim,                      # Conditioning label (C) dimensionality.
+        h_dim,                      # Conditioning instance (H) dimensionality.
         w_dim,                      # Intermediate latent (W) dimensionality.
         img_resolution,             # Output resolution.
         img_channels,               # Number of output color channels.
@@ -487,15 +501,16 @@ class Generator(torch.nn.Module):
         super().__init__()
         self.z_dim = z_dim
         self.c_dim = c_dim
+        self.h_dim = h_dim
         self.w_dim = w_dim
         self.img_resolution = img_resolution
         self.img_channels = img_channels
         self.synthesis = SynthesisNetwork(w_dim=w_dim, img_resolution=img_resolution, img_channels=img_channels, **synthesis_kwargs)
         self.num_ws = self.synthesis.num_ws
-        self.mapping = MappingNetwork(z_dim=z_dim, c_dim=c_dim, w_dim=w_dim, num_ws=self.num_ws, **mapping_kwargs)
+        self.mapping = MappingNetwork(z_dim=z_dim, c_dim=c_dim, h_dim=h_dim, w_dim=w_dim, num_ws=self.num_ws, **mapping_kwargs)
 
-    def forward(self, z, c, truncation_psi=1, truncation_cutoff=None, **synthesis_kwargs):
-        ws = self.mapping(z, c, truncation_psi=truncation_psi, truncation_cutoff=truncation_cutoff)
+    def forward(self, z, c, feats, truncation_psi=1, truncation_cutoff=None, **synthesis_kwargs):
+        ws = self.mapping(z, c, feats, truncation_psi=truncation_psi, truncation_cutoff=truncation_cutoff)
         img = self.synthesis(ws, **synthesis_kwargs)
         return img
 
@@ -673,6 +688,7 @@ class DiscriminatorEpilogue(torch.nn.Module):
 class Discriminator(torch.nn.Module):
     def __init__(self,
         c_dim,                          # Conditioning label (C) dimensionality.
+        h_dim,                          # Conditioning instance (H) dimensionality.
         img_resolution,                 # Input resolution.
         img_channels,                   # Number of input color channels.
         architecture        = 'resnet', # Architecture: 'orig', 'skip', 'resnet'.
@@ -687,6 +703,7 @@ class Discriminator(torch.nn.Module):
     ):
         super().__init__()
         self.c_dim = c_dim
+        self.h_dim = h_dim
         self.img_resolution = img_resolution
         self.img_resolution_log2 = int(np.log2(img_resolution))
         self.img_channels = img_channels
@@ -696,7 +713,7 @@ class Discriminator(torch.nn.Module):
 
         if cmap_dim is None:
             cmap_dim = channels_dict[4]
-        if c_dim == 0:
+        if c_dim == 0 and h_dim == 0:
             cmap_dim = 0
 
         common_kwargs = dict(img_channels=img_channels, architecture=architecture, conv_clamp=conv_clamp)
@@ -710,19 +727,19 @@ class Discriminator(torch.nn.Module):
                 first_layer_idx=cur_layer_idx, use_fp16=use_fp16, **block_kwargs, **common_kwargs)
             setattr(self, f'b{res}', block)
             cur_layer_idx += block.num_layers
-        if c_dim > 0:
-            self.mapping = MappingNetwork(z_dim=0, c_dim=c_dim, w_dim=cmap_dim, num_ws=None, w_avg_beta=None, **mapping_kwargs)
+        if c_dim > 0 or h_dim>0:
+            self.mapping = MappingNetwork(z_dim=0, c_dim=c_dim, h_dim=h_dim, w_dim=cmap_dim, num_ws=None, w_avg_beta=None, **mapping_kwargs)
         self.b4 = DiscriminatorEpilogue(channels_dict[4], cmap_dim=cmap_dim, resolution=4, **epilogue_kwargs, **common_kwargs)
 
-    def forward(self, img, c, **block_kwargs):
+    def forward(self, img, c, h, **block_kwargs):
         x = None
         for res in self.block_resolutions:
             block = getattr(self, f'b{res}')
             x, img = block(x, img, **block_kwargs)
 
         cmap = None
-        if self.c_dim > 0:
-            cmap = self.mapping(None, c)
+        if self.c_dim > 0 or self.h_dim > 0:
+            cmap = self.mapping(None, c, h)
         x = self.b4(x, img, cmap)
         return x
 

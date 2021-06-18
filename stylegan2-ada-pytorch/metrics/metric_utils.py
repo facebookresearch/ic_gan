@@ -218,8 +218,6 @@ def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_l
         images = data[0]
         if images.shape[1] == 1:
             images = images.repeat([1, 3, 1, 1])
-        if opts.dataset_kwargs.class_name == 'data_utils.datasets_common.ILSVRC_HDF5_feats':
-            images = (images + 1) * 127.5
         features = detector(images.to(opts.device), **detector_kwargs)
         stats.append_torch(features, num_gpus=opts.num_gpus, rank=opts.rank)
         progress.update(stats.num_items)
@@ -244,8 +242,8 @@ def compute_feature_stats_for_generator(opts, detector_url, detector_kwargs, rel
     dataset = dnnlib.util.construct_class_by_name(**opts.dataset_kwargs)
 
     # Image generation func.
-    def run_generator(z, c):
-        img = G(z=z, c=c, **opts.G_kwargs)
+    def run_generator(z, c, feats):
+        img = G(z=z, c=c, feats=feats, **opts.G_kwargs)
         img = (img * 127.5 + 128).clamp(0, 255).to(torch.uint8)
         return img
 
@@ -265,13 +263,12 @@ def compute_feature_stats_for_generator(opts, detector_url, detector_kwargs, rel
         images = []
         for _i in range(batch_size // batch_gen):
             z = torch.randn([batch_gen, G.z_dim], device=opts.device)
-
-            if not opts.dataset_kwargs.class_name == 'data_utils.datasets_common.ILSVRC_HDF5_feats':
-                c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_gen)]
-            else:
-                c = [dataset.get_instance_features(np.random.randint(len(dataset))) for _i in range(batch_gen)]
+            c = [dataset.get_label(np.random.randint(len(dataset))) for _i in range(batch_gen)]
             c = torch.from_numpy(np.stack(c)).pin_memory().to(opts.device)
-            images.append(run_generator(z, c))
+            h = [dataset.get_instance_features(np.random.randint(len(dataset))) for _i in
+                 range(batch_gen)]
+            h = torch.from_numpy(np.stack(h)).pin_memory().to(opts.device)
+            images.append(run_generator(z, c, h))
         images = torch.cat(images)
         if images.shape[1] == 1:
             images = images.repeat([1, 3, 1, 1])

@@ -25,7 +25,6 @@ from metrics import metric_main
 from torch_utils import training_stats
 from torch_utils import custom_ops
 
-from torchvision import transforms
 
 #----------------------------------------------------------------------------
 
@@ -46,15 +45,15 @@ def setup_training_loop_kwargs(
 
     # Dataset.
     data          = None, # Training dataset (required): <path>
-    load_labels = None,
+    class_cond    = None, # Conditioning on a class label <bool>
     subset        = None, # Train with only N images: <int>, default = all
     mirror        = None, # Augment dataset with x-flips: <bool>, default = False
     # IC-GAN dataset parameters.
-    root_feats=None,
-    root_nns=None,
-    load_features=None,
-    label_dim=None,
-    load_in_mem_feats=None,
+    instance_cond = None, # Conditioning on instance features <bool>
+    feature_augmentation = None, # Horizontal flips augmentation to extract instance features <bool>
+    root_feats    = None, # Path where to find the hdf5 file with the instance features <str>
+    root_nns      = None, # Path where to find the pre-computed nearest neighbors for each instance <str>
+    label_dim     = None, # Dimensionality of the class embeddings if we use class conditonings <int>.
 
     # Base config.
     cfg           = None, # Base config: 'auto' (default), 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar'
@@ -124,34 +123,49 @@ def setup_training_loop_kwargs(
 
     assert data is not None
     assert isinstance(data, str)
-    if load_features:
+    # TODO: Change this after we solve speed issue
+    if True:
         class_name = 'data_utils.datasets_common.ILSVRC_HDF5_feats'
     else:
         class_name = 'training.dataset.ImageFolderDataset'
-    args.training_set_kwargs = dnnlib.EasyDict(class_name=class_name, root=data, load_labels=load_labels, max_size=None, xflip=False, load_features = load_features,
-                                               root_feats =root_feats, root_nns = root_nns,
-                                               transform = None, load_in_mem_feats = load_in_mem_feats, label_dim=label_dim)
+    args.class_cond = class_cond
+    args.instance_cond = instance_cond
+
+    if mirror is None:
+        mirror = False
+    assert isinstance(mirror, bool)
+
+    args.training_set_kwargs = dnnlib.EasyDict(class_name=class_name, root=data,
+                                               max_size=None, xflip=False,
+                                               load_labels=class_cond, load_features=instance_cond,
+                                               root_feats=root_feats, root_nns=root_nns,
+                                               transform=None, label_dim=label_dim,
+                                               feature_dim=2048, apply_norm=False,
+                                               label_onehot=True, feature_augmentation=feature_augmentation)
     args.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, num_workers=3, prefetch_factor=2)
     try:
         training_set = dnnlib.util.construct_class_by_name(**args.training_set_kwargs) # subclass of training.dataset.Dataset
         args.training_set_kwargs.resolution = training_set.resolution # be explicit about resolution
-        if class_name == 'training.dataset.ImageFolderDataset':
-            args.training_set_kwargs.load_labels = training_set.has_labels # be explicit about labels
+        args.training_set_kwargs.load_labels = class_cond
         args.training_set_kwargs.max_size = len(training_set) # be explicit about dataset size
         desc = os.path.splitext(os.path.basename(data))[0]
         del training_set # conserve memory
     except IOError as err:
         raise UserError(f'--data: {err}')
 
+    if mirror:
+        desc += '-mirror'
+        args.training_set_kwargs.xflip = True
 
-    if load_labels:
-        if not args.training_set_kwargs.load_labels:
-            raise UserError('--cond=True requires labels specified in dataset.json')
-        desc += '-cond'
-    else:
-        args.training_set_kwargs.load_labels = False
-    if load_features and not load_labels:
-        args.training_set_kwargs.label_dim=2048
+
+    # if load_labels:
+    #     if not args.training_set_kwargs.load_labels:
+    #         raise UserError('--cond=True requires labels specified in dataset.json')
+    #     desc += '-cond'
+    # else:
+    #     args.training_set_kwargs.load_labels = False
+    # if load_features and not load_labels:
+    #     args.training_set_kwargs.label_dim=2048
 
     if subset is not None:
         assert isinstance(subset, int)
@@ -161,14 +175,6 @@ def setup_training_loop_kwargs(
         if subset < args.training_set_kwargs.max_size:
             args.training_set_kwargs.max_size = subset
             args.training_set_kwargs.random_seed = args.random_seed
-
-    if mirror is None:
-        mirror = False
-    assert isinstance(mirror, bool)
-    if mirror:
-        desc += '-mirror'
-        args.training_set_kwargs.xflip = True
-        args.training_set_kwargs.transform = transforms.RandomHorizontalFlip()
 
     # ------------------------------------
     # Base config: cfg, gamma, kimg, batch
@@ -201,8 +207,12 @@ def setup_training_loop_kwargs(
         spec.gamma = 0.0002 * (res ** 2) / spec.mb # heuristic formula
         spec.ema = spec.mb * 10 / 32
 
-    args.G_kwargs = dnnlib.EasyDict(class_name='training.networks.Generator', z_dim=512, w_dim=512, mapping_kwargs=dnnlib.EasyDict(), synthesis_kwargs=dnnlib.EasyDict())
-    args.D_kwargs = dnnlib.EasyDict(class_name='training.networks.Discriminator', block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(), epilogue_kwargs=dnnlib.EasyDict())
+    args.G_kwargs = dnnlib.EasyDict(class_name='training.networks.Generator',
+                                    z_dim=512, w_dim=512,
+                                    mapping_kwargs=dnnlib.EasyDict(), synthesis_kwargs=dnnlib.EasyDict())
+    args.D_kwargs = dnnlib.EasyDict(class_name='training.networks.Discriminator',
+                                    block_kwargs=dnnlib.EasyDict(), mapping_kwargs=dnnlib.EasyDict(),
+                                    epilogue_kwargs=dnnlib.EasyDict())
     args.G_kwargs.synthesis_kwargs.channel_base = args.D_kwargs.channel_base = int(spec.fmaps * 32768)
     args.G_kwargs.synthesis_kwargs.channel_max = args.D_kwargs.channel_max = 512
     args.G_kwargs.mapping_kwargs.num_layers = spec.map
@@ -255,7 +265,6 @@ def setup_training_loop_kwargs(
         desc += f'-batch{batch}'
         args.batch_size = batch
         args.batch_gpu = batch // (args.num_gpus)
-
     args.slurm = slurm
 
     # ---------------------------------------------------
