@@ -50,3 +50,25 @@ python run.py --json_config scripts/config_files/<dataset>/<selected_config>.jso
 * python test.py --json_config scripts/config_files/ImageNet-LT/biggan_res64.json --batch_size 64 --num_inception_images 115000 --seed 0 --sample_num_npz 115000 --eval_reference_set 'train' --sample_npz
 * ###TODO: obtain TF1.3 in gan_lt_pyt1.8_ddp
 * python inception_tf13.py --json_config scripts/config_files/ImageNet/biggan_res64_ddp.json
+
+
+# StyleGAN2
+
+### Train unconditional
+python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/mock_data/COCO128_xy.hdf5 --gpus=2 --exp_name 'stylegan2_coco128_unconditional_lr2.5e-3_gamma5e-2' --aug=noaug --lrate 0.0025 --gamma 0.05 --kimg 100000 --partition learnlab --slurm_time 3200 --es_patience 3738850 --mirror=1 --slurm=1
+python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/mock_data/COCO128_xy.hdf5 --gpus=2 --exp_name 'stylegan2_coco128_instance_cond_lr2.5e-3_gamma5e-2' --instance_cond=1 --aug=noaug --lrate 0.0025 --gamma 0.05 --kimg 100000 --partition learnlab --slurm_time 3200 --es_patience 3738850 --root_feats /private/home/acasanova/mock_data/COCO128_feats_selfsupervised_resnet50.hdf5 --root_nns /private/home/acasanova/mock_data/COCO128_feats_selfsupervised_resnet50_nn_k5.hdf5 --feature_augmentation=1 --mirror=1 --slurm=1
+
+python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/anyshot_longtail/data/ILSVRC128_xy.hdf5 --gpus=8 --nodes=2 --batch 1024 --exp_name 'stylegan2_imagenet128_unconditional' --aug=noaug --lrate 0.0025 --slurm=1
+
+
+
+
+
+## Data preparation
+cd data_utils
+./prepare_data.sh
+### Pretrained models: https://dl.fbaipublicfiles.com/deepcluster/swav_800ep_pretrain.pth.tar from https://github.com/facebookresearch/swav
+### Classif in ImageNet-lT: https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnet50_uniform_e90.pth (from https://github.com/facebookresearch/classifier-balancing)
+
+
+## Specify where to download the long-tail dataset
