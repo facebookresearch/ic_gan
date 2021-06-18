@@ -15,28 +15,25 @@ import argparse
 import time
 import subprocess
 import re
+import sys
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import numpy as np
 
 import torch
 import torch.nn as nn
-from torch.nn import init
-import torch.optim as optim
-import torch.nn.functional as F
-from torch.nn import Parameter as P
-import torchvision
+
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.optim as optim
 
 # Import my stuff
-import inception_utils
+import data_utils.inception_utils as inception_utils
 import utils
-import losses
 import train_fns
 from sync_batchnorm import patch_replication_callback
+from data_utils import utils as data_utils
 
-import submitit
 
 
 def run(config, ddp_setup='slurm', master_node=''):
@@ -240,14 +237,14 @@ def train(rank, world_size, config, dist_url):
     else:
         samples_per_class, class_probabilities = None, None
 
-    train_dataset = utils.get_dataset_hdf5(
+    train_dataset = data_utils.get_dataset_hdf5(
         **{**config, 'data_path': config['data_root'], 'batch_size': D_batch_size,
            'augment': config['hflips'],
            'local_rank': local_rank, 'copy_locally': copy_locally,
            'tmp_dir':tmp_dir,
            'ddp': config['ddp_train']
            })
-    train_loader = utils.get_dataloader(
+    train_loader = data_utils.get_dataloader(
         **{**config, 'dataset': train_dataset,
            'batch_size': config['batch_size'],
         'start_epoch': state_dict['epoch'],
@@ -293,7 +290,7 @@ def train(rank, world_size, config, dist_url):
                   'Using custom temperature distrib?',
                   config['custom_distrib_gen'], ' with temperature',
                   config['longtail_temperature'])
-            weights_sampling = utils.make_weights_for_balanced_classes(
+            weights_sampling = data_utils.make_weights_for_balanced_classes(
                 train_loader.dataset.labels, 1000,
                 config['custom_distrib_gen'],
                 config['longtail_temperature'],
