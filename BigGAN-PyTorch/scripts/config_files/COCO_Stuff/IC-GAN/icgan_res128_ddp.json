@@ -1,6 +1,6 @@
 {
   "experiment_name": "icgan_res128_COCO",
-  "data_root": "../mock_data",
+  "data_root": "../../mock_data",
   "base_root": "/checkpoint/acasanova/ic_gan/64x64",
   "which_dataset": "coco",
   "run_setup": "slurm",
