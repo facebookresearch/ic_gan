@@ -52,8 +52,6 @@ python run.py --json_config scripts/config_files/<dataset>/<selected_config>.jso
 * python inception_tf13.py --json_config scripts/config_files/ImageNet/biggan_res64_ddp.json
 
 
-
-
 # StyleGAN2
 
 ### Train unconditional

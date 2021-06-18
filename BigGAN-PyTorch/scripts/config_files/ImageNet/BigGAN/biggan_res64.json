@@ -1,0 +1,45 @@
+{
+  "experiment_name": "biggan_class_cond_res64_",
+  "data_root": "../..//anyshot_longtail/data",
+  "base_root": "/checkpoint/acasanova/ic_gan/64x64",
+  "run_setup": "local_debug",
+  "deterministic_run": true,
+  "seed": 0,
+  "num_workers": 10,
+
+  "ddp_train": false,
+  "parallel": true,
+  "use_checkpointable_sampler": true,
+  "n_nodes": 1,
+  "n_gpus_per_node": 1,
+  "hflips": false,
+
+  "test_every": 1,
+  "save_every": 1,
+  "num_epochs": 3000,
+  "es_patience": 50,
+  "shuffle": true,
+
+  "G_eval_mode": true,
+  "ema": true,
+  "use_ema": true,
+  "num_G_accumulations": 1,
+  "num_D_accumulations": 1,
+  "num_D_steps": 1,
+
+  "class_cond": true,
+  "hier": true,
+  "resolution": 64,
+  "G_attn": "32",
+  "D_attn": "32",
+  "shared_dim": 128,
+  "G_shared": true,
+  "batch_size": 128,
+  "D_lr": 1e-4,
+  "G_lr": 1e-4,
+  "G_ch": 64,
+  "D_ch": 64,
+
+  "load_weights": ""
+
+}
