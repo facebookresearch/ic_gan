@@ -13,6 +13,7 @@ import PIL.Image
 import json
 import torch
 import dnnlib
+import h5py as h5
 
 try:
     import pyspng
@@ -26,13 +27,14 @@ class Dataset(torch.utils.data.Dataset):
         name,                   # Name of the dataset.
         raw_shape,              # Shape of the raw image data (NCHW).
         max_size    = None,     # Artificially limit the size of the dataset. None = no limit. Applied before xflip.
-        use_labels  = False,    # Enable conditioning labels? False = label dimension is zero.
+        load_labels  = False,    # Enable conditioning labels? False = label dimension is zero.
         xflip       = False,    # Artificially double the size of the dataset via x-flips. Applied after max_size.
         random_seed = 0,        # Random seed to use when applying max_size.
+        **kwargs
     ):
         self._name = name
         self._raw_shape = list(raw_shape)
-        self._use_labels = use_labels
+        self._load_labels = load_labels
         self._raw_labels = None
         self._label_shape = None
 
@@ -48,16 +50,16 @@ class Dataset(torch.utils.data.Dataset):
             self._raw_idx = np.tile(self._raw_idx, 2)
             self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
 
-    def _get_raw_labels(self):
+    def _get_raw_labels(self, idx):
         if self._raw_labels is None:
-            self._raw_labels = self._load_raw_labels() if self._use_labels else None
+            self._raw_labels = self._load_raw_labels(idx) if self._load_labels else None
             if self._raw_labels is None:
                 self._raw_labels = np.zeros([self._raw_shape[0], 0], dtype=np.float32)
-            assert isinstance(self._raw_labels, np.ndarray)
-            assert self._raw_labels.shape[0] == self._raw_shape[0]
+            #assert isinstance(self._raw_labels, np.ndarray)
+            #assert self._raw_labels.shape[0] == self._raw_shape[0]
             assert self._raw_labels.dtype in [np.float32, np.int64]
             if self._raw_labels.dtype == np.int64:
-                assert self._raw_labels.ndim == 1
+               # assert self._raw_labels.ndim == 1
                 assert np.all(self._raw_labels >= 0)
         return self._raw_labels
 
@@ -67,7 +69,7 @@ class Dataset(torch.utils.data.Dataset):
     def _load_raw_image(self, raw_idx): # to be overridden by subclass
         raise NotImplementedError
 
-    def _load_raw_labels(self): # to be overridden by subclass
+    def _load_raw_labels(self, raw_idx): # to be overridden by subclass
         raise NotImplementedError
 
     def __getstate__(self):
@@ -93,7 +95,7 @@ class Dataset(torch.utils.data.Dataset):
         return image.copy(), self.get_label(idx)
 
     def get_label(self, idx):
-        label = self._get_raw_labels()[self._raw_idx[idx]]
+        label = self._get_raw_labels(self._raw_idx[idx])
         if label.dtype == np.int64:
             onehot = np.zeros(self.label_shape, dtype=np.float32)
             onehot[label] = 1
@@ -129,7 +131,7 @@ class Dataset(torch.utils.data.Dataset):
     @property
     def label_shape(self):
         if self._label_shape is None:
-            raw_labels = self._get_raw_labels()
+            raw_labels = self._get_raw_labels(0)
             if raw_labels.dtype == np.int64:
                 self._label_shape = [int(np.max(raw_labels)) + 1]
             else:
@@ -153,11 +155,11 @@ class Dataset(torch.utils.data.Dataset):
 
 class ImageFolderDataset(Dataset):
     def __init__(self,
-        path,                   # Path to directory or zip.
+        root,                   # Path to directory or zip.
         resolution      = None, # Ensure specific resolution, None = highest available.
         **super_kwargs,         # Additional arguments for the Dataset base class.
     ):
-        self._path = path
+        self._path = root
         self._zipfile = None
 
         if os.path.isdir(self._path):
@@ -166,16 +168,25 @@ class ImageFolderDataset(Dataset):
         elif self._file_ext(self._path) == '.zip':
             self._type = 'zip'
             self._all_fnames = set(self._get_zipfile().namelist())
+        elif self._file_ext(self._path) == '.hdf5':
+            self._type = 'hdf5'
         else:
             raise IOError('Path must point to a directory or zip')
 
         PIL.Image.init()
-        self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
-        if len(self._image_fnames) == 0:
-            raise IOError('No image files found in the specified path')
+        if self._type in ['dir', 'zip']:
+            self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+            if len(self._image_fnames) == 0:
+                raise IOError('No image files found in the specified path')
 
         name = os.path.splitext(os.path.basename(self._path))[0]
-        raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
+        if self._type == 'hdf5':
+            with h5.File(self._path, 'r') as f:
+                nb = len(f['imgs'])
+                sze = list(f['imgs'][0].shape)
+            raw_shape = [nb] + sze
+        else:
+            raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
         if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
             raise IOError('Image files do not match the specified resolution')
         super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
@@ -208,29 +219,38 @@ class ImageFolderDataset(Dataset):
         return dict(super().__getstate__(), _zipfile=None)
 
     def _load_raw_image(self, raw_idx):
-        fname = self._image_fnames[raw_idx]
-        with self._open_file(fname) as f:
-            if pyspng is not None and self._file_ext(fname) == '.png':
-                image = pyspng.load(f.read())
-            else:
-                image = np.array(PIL.Image.open(f))
-        if image.ndim == 2:
-            image = image[:, :, np.newaxis] # HW => HWC
-        image = image.transpose(2, 0, 1) # HWC => CHW
+        if self._type in ['dir', 'zip']:
+            fname = self._image_fnames[raw_idx]
+            with self._open_file(fname) as f:
+                if pyspng is not None and self._file_ext(fname) == '.png':
+                    image = pyspng.load(f.read())
+                else:
+                    image = np.array(PIL.Image.open(f))
+            if image.ndim == 2:
+                image = image[:, :, np.newaxis] # HW => HWC
+            image = image.transpose(2, 0, 1) # HWC => CHW
+        elif self._type == 'hdf5':
+            with h5.File(self._path, 'r') as f:
+                image = f['imgs'][raw_idx]
         return image
 
-    def _load_raw_labels(self):
-        fname = 'dataset.json'
-        if fname not in self._all_fnames:
-            return None
-        with self._open_file(fname) as f:
-            labels = json.load(f)['labels']
-        if labels is None:
-            return None
-        labels = dict(labels)
-        labels = [labels[fname.replace('\\', '/')] for fname in self._image_fnames]
-        labels = np.array(labels)
-        labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
+    def _load_raw_labels(self, idx):
+        if self._type in ['dir', 'zip']:
+            fname = 'dataset.json'
+            if fname not in self._all_fnames:
+                return None
+            with self._open_file(fname) as f:
+                labels = json.load(f)['labels']
+            if labels is None:
+                return None
+            labels = dict(labels)
+            labels = [labels[fname.replace('\\', '/')] for fname in self._image_fnames]
+            labels = np.array(labels)
+            labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])[idx]
+
+        elif self._type == 'hdf5':
+            with h5.File(self._path, 'r') as f:
+                labels = f['labels'][idx]
         return labels
 
 #----------------------------------------------------------------------------
