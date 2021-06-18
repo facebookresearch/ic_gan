@@ -57,7 +57,9 @@ python run.py --json_config scripts/config_files/<dataset>/<selected_config>.jso
 # StyleGAN2
 
 ### Train unconditional
-python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/anyshot_longtail/data/COCO128_xy.hdf5 --gpus=2 --exp_name 'stylegan2_coco128_unconditional_lr0.0025_gamma0.05' --aug=noaug --lrate 0.0025 --gamma 0.05 --slurm=1 --kimg 100000 --partition learnfair --slurm_time 3200 --es_patience 3738850
+python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/mock_data/COCO128_xy.hdf5 --gpus=2 --exp_name 'stylegan2_coco128_unconditional_lr2.5e-3_gamma5e-2' --aug=noaug --lrate 0.0025 --gamma 0.05 --kimg 100000 --partition learnlab --slurm_time 3200 --es_patience 3738850 --mirror=1 --slurm=1
+python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/mock_data/COCO128_xy.hdf5 --gpus=2 --exp_name 'stylegan2_coco128_instance_cond_lr2.5e-3_gamma5e-2' --instance_cond=1 --aug=noaug --lrate 0.0025 --gamma 0.05 --kimg 100000 --partition learnlab --slurm_time 3200 --es_patience 3738850 --root_feats /private/home/acasanova/mock_data/COCO128_feats_selfsupervised_resnet50.hdf5 --root_nns /private/home/acasanova/mock_data/COCO128_feats_selfsupervised_resnet50_nn_k5.hdf5 --feature_augmentation=1 --mirror=1 --slurm=1
+
 python run.py --outdir=/checkpoint/acasanova/stylegan_training-runs --slurm_logdir /checkpoint/acasanova/submitit_logs_anyshot/ --data=/private/home/acasanova/anyshot_longtail/data/ILSVRC128_xy.hdf5 --gpus=8 --nodes=2 --batch 1024 --exp_name 'stylegan2_imagenet128_unconditional' --aug=noaug --lrate 0.0025 --slurm=1
 
 
