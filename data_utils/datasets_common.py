@@ -203,7 +203,7 @@ class ILSVRC_HDF5_feats(data.Dataset):
                load_in_mem_images=False, load_in_mem_labels=False,
                load_in_mem_feats=False, k_nn=4, which_nn_balance='instance_balance',
                kmeans_file=None, n_subsampled_data=-1, filter_hd=-1,label_dim=0,
-               feature_augmentation=False, gpu_knn=True,
+               feature_augmentation=False, gpu_knn=True, apply_norm=True,
                **kwargs):
     self.root = root
     self.root_feats = root_feats
@@ -220,6 +220,9 @@ class ILSVRC_HDF5_feats(data.Dataset):
 
     # Set the transform here
     self.transform = transform
+    #Normalization of images between -0.5 and 0.5 used in BigGAN
+    self.apply_norm=apply_norm
+
 
     # load the entire dataset into memory?
     self.load_in_mem_images = load_in_mem_images
@@ -551,7 +554,9 @@ class ILSVRC_HDF5_feats(data.Dataset):
       feats, radii = None, None
 
     # Apply transform
-    img = ((torch.from_numpy(img).float() / 255) - 0.5) * 2
+    img = torch.from_numpy(img)
+    if self.apply_norm:
+      img = ((img.float() / 255) - 0.5) * 2
     if self.transform is not None:
       img = self.transform(img)
     if self.target_transform is not None:
