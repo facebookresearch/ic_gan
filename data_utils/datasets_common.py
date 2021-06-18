@@ -202,8 +202,8 @@ class ILSVRC_HDF5_feats(data.Dataset):
                target_transform=None, load_labels=True, load_features=True,
                load_in_mem_images=False, load_in_mem_labels=False,
                load_in_mem_feats=False, k_nn=4, which_nn_balance='instance_balance',
-               kmeans_file=None, n_subsampled_data=-1, filter_hd=-1,label_dim=0,
-               feature_augmentation=False, gpu_knn=True, apply_norm=True,
+               kmeans_file=None, n_subsampled_data=-1, filter_hd=-1,label_dim=0, feature_dim=2048,
+               feature_augmentation=False, gpu_knn=True, apply_norm=True, label_onehot=False,
                **kwargs):
     self.root = root
     self.root_feats = root_feats
@@ -211,6 +211,8 @@ class ILSVRC_HDF5_feats(data.Dataset):
 
     self.load_labels = load_labels
     self._label_dim = label_dim
+    self._feature_dim = feature_dim
+    self.label_onehot = label_onehot
     self.load_features = load_features
 
     self.feature_augmentation = feature_augmentation
@@ -313,6 +315,10 @@ class ILSVRC_HDF5_feats(data.Dataset):
   @property
   def label_dim(self):
     return self._label_dim
+
+  @property
+  def feature_dim(self):
+    return self._feature_dim
 
 
 
@@ -467,6 +473,12 @@ class ILSVRC_HDF5_feats(data.Dataset):
     return img
 
   def get_label(self, index):
+    if not self.load_labels:
+      if self.label_onehot:
+        return np.zeros(self.label_dim, dtype=np.float32).copy()
+      else:
+        return 0
+
     if self.load_labels:
       if self.load_in_mem_labels:
         target = self.labels[index]
@@ -475,9 +487,18 @@ class ILSVRC_HDF5_feats(data.Dataset):
           target = f['labels'][index]
     else:
       target = None
+    if self.label_onehot:
+        onehot_vec = np.zeros(self.label_dim, dtype=np.float32)
+        onehot_vec[target] = 1
+        target = onehot_vec.copy()
+    else:
+      target = int(target)
     return target
 
   def get_instance_features(self, index):
+    if not self.load_features:
+      return np.zeros(self.feature_dim, dtype=np.float32).copy()
+
     if self.load_in_mem_feats:
       feat = self.feats[index].clone().float()  # .astype('float')
     else:
@@ -563,11 +584,11 @@ class ILSVRC_HDF5_feats(data.Dataset):
       target = self.target_transform(target)
 
     if self.load_features and self.load_labels:
-      return img, int(target), feats, radii
+      return img, target, feats, radii
     elif self.load_features:
       return img, feats, radii
     elif self.load_labels:
-      return img, int(target)
+      return img, target
     else:
       return img
 
