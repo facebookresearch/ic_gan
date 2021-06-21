@@ -198,7 +198,7 @@ def training_loop(
     else:
         try:
             print(f'Resuming from "{snapshot_pkl_last}".pkl')
-            with dnnlib.util.open_url(snapshot_pkl_last + '.pkl') as f:
+            with dnnlib.util.open_url(snapshot_pkl_last + ".pkl") as f:
                 resume_data = legacy.load_network_pkl(f)
             for name, module in [('G', G), ('D', D), ('G_ema', G_ema)]:
                 misc.copy_params_and_buffers(resume_data[name], module,
@@ -345,6 +345,9 @@ def training_loop(
                 phase_real_h = torch.empty([batch_gpu, G.h_dim], device=device)
             else:
                 phase_real_img = batch
+                phase_real_c = torch.empty([batch_gpu, G.c_dim], device=device)
+                phase_real_h = torch.empty([batch_gpu, G.h_dim], device=device)
+
             phase_real_img = (phase_real_img.to(device).to(torch.float32) / 127.5 - 1).split(
                 batch_gpu)
             all_gen_c = [training_set.get_label(np.random.randint(len(training_set))) for _ in
