@@ -147,14 +147,23 @@ def training_loop(
     if slurm:
         img_filename = os.path.basename(training_set_kwargs.root)
         tmp_file_img = os.path.join(temp_dir, img_filename)
+        if instance_cond:
+            feats_filename = os.path.basename(training_set_kwargs.root_feats)
+            tmp_file_feats = os.path.join(temp_dir, feats_filename)
         if local_rank == 0:
             print('start copying data locally')
             if not os.path.exists(tmp_file_img):
                 shutil.copy2(training_set_kwargs.root, tmp_file_img)
+            if instance_cond and not os.path.exists(tmp_file_feats):
+                shutil.copy2(training_set_kwargs.root_feats, tmp_file_feats)
             print('finished copying data locally')
         dist.barrier()
         training_set_kwargs.root = tmp_file_img
+        if instance_cond:
+            training_set_kwargs.root_feats = tmp_file_feats
         print('Final path dataset ', training_set_kwargs.root)
+        if instance_cond:
+            print('Final path dataset (feats)', training_set_kwargs.root_feats)
 
     # Load training set.
     if rank == 0:
@@ -165,7 +174,7 @@ def training_loop(
         transform = None
     training_set = dnnlib.util.construct_class_by_name(**{**training_set_kwargs, 'transform':transform}) # subclass of training.dataset.Dataset
     training_set_sampler = misc.InfiniteSampler(dataset=training_set, rank=rank, num_replicas=num_gpus, seed=random_seed)
-    training_set_iterator = iter(torch.utils.data.DataLoader(dataset=training_set, sampler=training_set_sampler, batch_size=batch_size, **data_loader_kwargs))
+    training_set_iterator = iter(torch.utils.data.DataLoader(dataset=training_set, sampler=training_set_sampler, batch_size=batch_size//num_gpus, **data_loader_kwargs))
     if rank == 0:
         print()
         print('Num images: ', len(training_set))
@@ -198,7 +207,7 @@ def training_loop(
     else:
         try:
             print(f'Resuming from "{snapshot_pkl_last}".pkl')
-            with dnnlib.util.open_url(snapshot_pkl_last + '.pkl') as f:
+            with dnnlib.util.open_url(snapshot_pkl_last + ".pkl") as f:
                 resume_data = legacy.load_network_pkl(f)
             for name, module in [('G', G), ('D', D), ('G_ema', G_ema)]:
                 misc.copy_params_and_buffers(resume_data[name], module,
@@ -345,6 +354,9 @@ def training_loop(
                 phase_real_h = torch.empty([batch_gpu, G.h_dim], device=device)
             else:
                 phase_real_img = batch
+                phase_real_c = torch.empty([batch_gpu, G.c_dim], device=device)
+                phase_real_h = torch.empty([batch_gpu, G.h_dim], device=device)
+
             phase_real_img = (phase_real_img.to(device).to(torch.float32) / 127.5 - 1).split(
                 batch_gpu)
             all_gen_c = [training_set.get_label(np.random.randint(len(training_set))) for _ in
