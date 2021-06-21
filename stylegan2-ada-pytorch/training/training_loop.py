@@ -147,14 +147,23 @@ def training_loop(
     if slurm:
         img_filename = os.path.basename(training_set_kwargs.root)
         tmp_file_img = os.path.join(temp_dir, img_filename)
+        if instance_cond:
+            feats_filename = os.path.basename(training_set_kwargs.root_feats)
+            tmp_file_feats = os.path.join(temp_dir, feats_filename)
         if local_rank == 0:
             print('start copying data locally')
             if not os.path.exists(tmp_file_img):
                 shutil.copy2(training_set_kwargs.root, tmp_file_img)
+            if instance_cond and not os.path.exists(tmp_file_feats):
+                shutil.copy2(training_set_kwargs.root_feats, tmp_file_feats)
             print('finished copying data locally')
         dist.barrier()
         training_set_kwargs.root = tmp_file_img
+        if instance_cond:
+            training_set_kwargs.root_feats = tmp_file_feats
         print('Final path dataset ', training_set_kwargs.root)
+        if instance_cond:
+            print('Final path dataset (feats)', training_set_kwargs.root_feats)
 
     # Load training set.
     if rank == 0:
