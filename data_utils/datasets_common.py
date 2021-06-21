@@ -491,8 +491,7 @@ class ILSVRC_HDF5_feats(data.Dataset):
         onehot_vec = np.zeros(self.label_dim, dtype=np.float32)
         onehot_vec[target] = 1
         target = onehot_vec.copy()
-    else:
-      target = int(target)
+
     return target
 
   def get_instance_features(self, index):
@@ -583,6 +582,8 @@ class ILSVRC_HDF5_feats(data.Dataset):
     if self.target_transform is not None:
       target = self.target_transform(target)
 
+    if not self.label_onehot:
+      target = int(target)
     if self.load_features and self.load_labels:
       return img, target, feats, radii
     elif self.load_features:
