@@ -1,8 +1,7 @@
 {
-  "experiment_name": "icgan_res128_COCO",
+  "experiment_name": "icgan_res64_augfeats_hflips",
   "data_root": "../../mock_data",
   "base_root": "/checkpoint/acasanova/ic_gan/64x64",
-  "which_dataset": "coco",
   "run_setup": "slurm",
   "deterministic_run": true,
   "seed": 0,
@@ -10,13 +9,11 @@
 
   "ddp_train": true,
   "n_nodes": 1,
-  "n_gpus_per_node": 4,
+  "n_gpus_per_node": 1,
   "hflips": true,
-  "DA": true,
-  "DiffAugment": "translation",
   "feature_augmentation": true,
 
-  "test_every": 5,
+  "test_every": 1,
   "save_every": 1,
   "num_epochs": 3000,
   "es_patience": 50,
@@ -32,22 +29,22 @@
   "class_cond": false,
   "instance_cond": true,
   "hier": true,
-  "resolution": 128,
-  "G_attn": "64",
-  "D_attn": "64",
+  "resolution": 64,
+  "G_attn": "32",
+  "D_attn": "32",
   "shared_dim": 128,
   "shared_dim_feat": 512,
   "G_shared": true,
   "G_shared_feat": true,
 
-  "k_nn": 5,
+  "k_nn": 50,
   "feature_extractor": "selfsupervised",
 
-  "batch_size": 64,
-  "D_lr": 4e-4,
+  "batch_size": 256,
+  "D_lr": 1e-4,
   "G_lr": 1e-4,
-  "G_ch": 48,
-  "D_ch": 48,
+  "G_ch": 64,
+  "D_ch": 64,
 
   "load_weights": ""
 
