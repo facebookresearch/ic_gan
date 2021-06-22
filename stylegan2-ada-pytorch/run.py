@@ -16,7 +16,7 @@ import parser
 class Trainer(Checkpointable):
     def __call__(self,args, slurm=False):
      if slurm:
-         main(args, args.outdir, master_node =submitit.JobEnvironment().hostnames[0])
+         main(args, args.outdir, master_node =submitit.JobEnvironment().hostnames[0], port=args.port)
      else:
          main(args, args.outdir, master_node='', dry_run=args.dry_run)
 
@@ -27,7 +27,6 @@ if __name__ == "__main__":
     args = parser_.parse_args()
 
     trainer = Trainer()
-
     if not args.slurm:
         trainer(args)
     else:

@@ -18,6 +18,8 @@ import tempfile
 import torch
 import dnnlib
 
+import numpy as np
+
 import parser
 
 from training import training_loop
@@ -452,7 +454,7 @@ class CommaSeparatedList(click.ParamType):
 
 #----------------------------------------------------------------------------
 
-def main(args, outdir, master_node='',  dry_run=False, **config_kwargs):
+def main(args, outdir, master_node='', port=40000, dry_run=False, **config_kwargs):
     """Train a GAN using the techniques described in the paper
     "Training Generative Adversarial Networks with Limited Data".
 
@@ -551,7 +553,6 @@ def main(args, outdir, master_node='',  dry_run=False, **config_kwargs):
         world_size = n_gpus_per_node * n_nodes
         dist_url = "tcp://"
         dist_url += master_node
-        port = 40000
         dist_url += ":" + str(port)
         print('Dist url ', dist_url)
         temp_dir = '/scratch/slurm_tmpdir/' + str(os.environ.get("SLURM_JOB_ID"))

@@ -21,6 +21,8 @@ def get_parser():
                         type=int, metavar='INT')
     parser.add_argument('--seed', help='Random seed [default: 0]', type=int,
                         metavar='INT')
+    parser.add_argument('--port', help='Port number for DDP connection [default: 40000]', type=int,
+                        default=40000, metavar='INT')
     parser.add_argument('--dry-run',
                          help='Print training options and exit', type=bool, metavar='BOOL')
 
