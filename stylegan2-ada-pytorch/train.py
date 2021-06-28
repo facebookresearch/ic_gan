@@ -65,6 +65,8 @@ def setup_training_loop_kwargs(
     batch         = None, # Override batch size: <int>
     num_channel_g = None, # Override width of generator network: <int>
     num_channel_d = None, # Override width of discriminator network: <int>
+    channel_max_g = None,  # Override max width of generator network: <int>
+    channel_max_d = None,  # Override max width of discriminator network: <int>
     es_patience   = None, # Early stopping patience in number of seen images: <int>
 
     # Discriminator augmentation.
@@ -225,8 +227,12 @@ def setup_training_loop_kwargs(
     args.exp_name = exp_name
     if num_channel_d is not None:
         args.D_kwargs.channel_base = num_channel_d
+    if channel_max_d is not None:
+        args.D_kwargs.channel_max = channel_max_d
     if num_channel_g is not None:
         args.G_kwargs.synthesis_kwargs.channel_base = num_channel_g
+    if channel_max_g is not None:
+        args.G_kwargs.synthesis_kwargs.channel_max = channel_max_g
 
     if lrate is not None:
         spec.lrate = lrate

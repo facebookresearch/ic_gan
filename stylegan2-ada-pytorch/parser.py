@@ -73,6 +73,8 @@ def get_parser():
     parser.add_argument('--lrate', help='Override lrate', type=float)
     parser.add_argument('--num_channel_g', help='Override width of generator', type=int)
     parser.add_argument('--num_channel_d', help='Override width of discriminator', type=int)
+    parser.add_argument('--channel_max_g', help='Override max width of generator', type=int)
+    parser.add_argument('--channel_max_d', help='Override max width of discriminator', type=int)
     parser.add_argument('--es_patience', help='Early stopping patience', type=int, default=100000000,
                         metavar='INT')
 
