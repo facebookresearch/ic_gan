@@ -29,7 +29,7 @@ def prepare_parser():
     usage = 'Parser for all scripts.'
     parser = ArgumentParser(description=usage)
 
-    parser.add_argument("--json_config", type=str, default='',
+    parser.add_argument("--json_config", type=str, default="",
                         help="Json config from where to load the configuration parameters.")
 
     ### Dataset/Dataloader stuff ###
@@ -402,7 +402,7 @@ def prepare_parser():
 
     parser.add_argument(
         '--which_dataset', type=str, default='imagenet',
-        choices=['imagenet','coco'],
+        choices=['imagenet','coco', 'coco_40k'],
         help='Dataset choice.')
 
     ### Ortho reg stuff ###
@@ -590,11 +590,14 @@ def seed_worker(worker_id):
 
 # Utility to peg all roots to a base root
 # If a base root folder is provided, peg all other root folders to it.
-def update_config_roots(config):
+def update_config_roots(config, change_weight_folder=True):
     if config['base_root']:
         print('Pegging all root folders to base root %s' % config['base_root'])
         for key in ['weights', 'logs', 'samples']:
-            config['%s_root' % key] = '%s/%s' % (config['base_root'], key)
+            if change_weight_folder:
+                config['%s_root' % key] = '%s/%s' % (config['base_root'], key)
+            else:
+                config['%s_root' % key] = '%s' % (config['base_root'])
     return config
 
 
