@@ -1,0 +1,48 @@
+{
+  "experiment_name": "icgan_biggan_imagenet_res64",
+  "run_setup": "local_debug",
+  "deterministic_run": true,
+  "num_workers": 10,
+
+  "ddp_train": true,
+  "n_nodes": 1,
+  "n_gpus_per_node": 1,
+  "hflips": true,
+  "feature_augmentation": true,
+
+  "test_every": 1,
+  "save_every": 1,
+  "num_epochs": 3000,
+  "es_patience": 50,
+  "shuffle": true,
+
+  "G_eval_mode": true,
+  "ema": true,
+  "use_ema": true,
+  "num_G_accumulations": 1,
+  "num_D_accumulations": 1,
+  "num_D_steps": 1,
+
+  "class_cond": false,
+  "instance_cond": true,
+  "hier": true,
+  "resolution": 64,
+  "G_attn": "32",
+  "D_attn": "32",
+  "shared_dim": 128,
+  "shared_dim_feat": 512,
+  "G_shared": true,
+  "G_shared_feat": true,
+
+  "k_nn": 50,
+  "feature_extractor": "selfsupervised",
+
+  "batch_size": 256,
+  "D_lr": 1e-4,
+  "G_lr": 1e-4,
+  "G_ch": 64,
+  "D_ch": 64,
+
+  "load_weights": ""
+
+}

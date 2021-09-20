@@ -1,0 +1,48 @@
+{
+  "experiment_name": "cc_icgan_biggan_imagenet_res256_halfcap",
+  "run_setup": "local_debug",
+  "deterministic_run": true,
+  "num_workers": 10,
+
+  "ddp_train": true,
+  "n_nodes": 4,
+  "n_gpus_per_node": 8,
+  "hflips": true,
+  "feature_augmentation": true,
+
+  "test_every": 5,
+  "save_every": 1,
+  "num_epochs": 3000,
+  "es_patience": 50,
+  "shuffle": true,
+
+  "G_eval_mode": true,
+  "ema": true,
+  "use_ema": true,
+  "num_G_accumulations": 4,
+  "num_D_accumulations": 4,
+  "num_D_steps": 2,
+
+  "class_cond": true,
+  "instance_cond": true,
+  "hier": true,
+  "resolution": 256,
+  "G_attn": "64",
+  "D_attn": "64",
+  "shared_dim": 128,
+  "shared_dim_feat": 512,
+  "G_shared": true,
+  "G_shared_feat": true,
+
+  "k_nn": 50,
+  "feature_extractor": "classification",
+
+  "batch_size": 16,
+  "D_lr": 1e-4,
+  "G_lr": 1e-4,
+  "G_ch": 64,
+  "D_ch": 64,
+
+  "load_weights": ""
+
+}

@@ -1,0 +1,44 @@
+{
+  "experiment_name": "unconditional_biggan_class_cond_res128_COCO",
+  "which_dataset": "coco",
+  "run_setup": "local_debug",
+  "deterministic_run": true,
+  "num_workers": 10,
+
+  "ddp_train": true,
+  "n_nodes": 1,
+  "n_gpus_per_node": 4,
+  "hflips": true,
+  "DA": true,
+  "DiffAugment": "translation",
+
+  "test_every": 1,
+  "save_every": 1,
+  "num_epochs": 3000,
+  "es_patience": 50,
+  "shuffle": true,
+
+  "G_eval_mode": true,
+  "ema": true,
+  "use_ema": true,
+  "num_G_accumulations": 1,
+  "num_D_accumulations": 1,
+  "num_D_steps": 2,
+
+  "constant_conditioning": true,
+  "class_cond": true,
+  "hier": true,
+  "resolution": 128,
+  "G_attn": "64",
+  "D_attn": "64",
+  "shared_dim": 128,
+  "G_shared": true,
+  "batch_size": 64,
+  "D_lr": 4e-4,
+  "G_lr": 1e-4,
+  "G_ch": 48,
+  "D_ch": 48,
+
+  "load_weights": ""
+
+}
