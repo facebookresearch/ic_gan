@@ -2,6 +2,7 @@
 Official Pytorch code of [Instance-Conditioned GAN](https://arxiv.org/abs/2109.05070) by Arantxa Casanova, Marlene Careil, Jakob Verbeek, Michał Drożdżal, Adriana Romero-Soriano. 
 ![IC-GAN results](./figures/github_image.png?raw=true)
 
+[Generate images with IC-GAN on Replicate](https://replicate.ai/arantxacasanova/ic_gan)
 
 ## Generate images with IC-GAN in a Colab Notebook
 We provide a [Google Colab notebook](https://colab.research.google.com/github/facebookresearch/ic_gan/blob/main/inference/icgan_colab.ipynb) to generate images with IC-GAN and its class-conditional counter part. 
