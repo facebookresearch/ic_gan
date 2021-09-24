@@ -21,7 +21,5 @@ build:
     - "h5py==3.4.0"
     - "matplotlib==3.4.3"
     - "faiss-gpu==1.7.1.post2"
-  run:
-    - git clone --depth 1 https://github.com/openai/CLIP
 
 predict: "predict.py:Predictor"

@@ -1,3 +1,9 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import sys
 import os
 import tempfile
@@ -65,7 +71,7 @@ class Predictor(cog.Predictor):
             if gen_model == "icgan"
             else "cc_icgan_biggan_imagenet_res256"
         )
-        num_samples_total = 160
+        num_samples_total = num_samples * 10
         truncation = 0.7
         if conditional_class is not None:
             class_index = NAME2IND[conditional_class]
@@ -225,7 +231,6 @@ def load_icgan(experiment_name, root_=""):
     config["weights_root"] = root_
     config["model_backbone"] = "biggan"
     config["experiment_name"] = experiment_name
-    # TODO: delete this line
     G, config = inference_utils.load_model_inference(config)
     G.cuda()
     G.eval()
