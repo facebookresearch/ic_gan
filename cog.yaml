@@ -1,0 +1,25 @@
+build:
+  gpu: true
+  python_version: "3.8"
+  system_packages:
+    - "libgl1-mesa-glx"
+    - "libglib2.0-0"
+  python_packages:
+    - "torch==1.8.0"
+    - "torchvision==0.9.0"
+    - "numpy==1.21.1"
+    - "ipython==7.21.0"
+    - "pytorch-pretrained-biggan==0.1.1"
+    - "ftfy==6.0.3"
+    - "cma==3.1.0"
+    - "scikit-learn==0.24.2"
+    - "imageio==2.9.0"
+    - "Pillow==8.3.1"
+    - "regex==2021.8.28"
+    - "nltk==3.6.3"
+    - "scipy==1.7.1"
+    - "h5py==3.4.0"
+    - "matplotlib==3.4.3"
+    - "faiss-gpu==1.7.1.post2"
+
+predict: "predict.py:Predictor"
