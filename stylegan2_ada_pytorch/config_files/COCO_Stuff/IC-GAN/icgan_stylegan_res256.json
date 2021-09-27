@@ -1,0 +1,20 @@
+{
+  "exp_name": "icgan_stylegan2_coco_res256",
+  "data": "COCO256_xy.hdf5",
+  "root_feats": "COCO256_feats_selfsupervised_resnet50.hdf5",
+  "root_nns": "COCO256_feats_selfsupervised_resnet50_nn_k5.hdf5",
+  "gpus": 2,
+  "slurm": true,
+  "aug": "noaug",
+  "lrate": 0.003,
+  "gamma": 0.5,
+  "kimg": 100000,
+  "es_patience": 3738850,
+  "instance_cond": true,
+  "mirror": true,
+  "resolution": 256,
+  "feature_augmentation": true,
+  "feature_extractor": "selfsupervised",
+  "k_nn": 5,
+  "run_setup": "local_debug"
+}

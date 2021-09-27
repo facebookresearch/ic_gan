@@ -1,0 +1,20 @@
+{
+  "exp_name": "icgan_stylegan2_coco_res128",
+  "data": "COCO128_xy.hdf5",
+  "root_feats": "COCO128_feats_selfsupervised_resnet50.hdf5",
+  "root_nns": "COCO128_feats_selfsupervised_resnet50_nn_k5.hdf5",
+  "gpus": 2,
+  "slurm": false,
+  "aug": "noaug",
+  "lrate": 0.0025,
+  "gamma": 0.05,
+  "kimg": 100000,
+  "es_patience": 3738850,
+  "instance_cond": true,
+  "mirror": true,
+  "resolution": 128,
+  "feature_augmentation": true,
+  "feature_extractor": "selfsupervised",
+  "k_nn": 5,
+  "run_setup": "local_debug"
+}

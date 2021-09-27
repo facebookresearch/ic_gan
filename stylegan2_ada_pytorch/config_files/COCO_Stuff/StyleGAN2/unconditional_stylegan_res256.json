@@ -1,0 +1,16 @@
+{
+  "exp_name": "unconditional_stylegan2_coco_res256",
+  "data": "COCO256_xy.hdf5",
+  "gpus": 2,
+  "slurm": true,
+  "aug": "noaug",
+  "lrate": 0.002,
+  "gamma": 0.2,
+  "kimg": 100000,
+  "es_patience": 3738850,
+  "mirror": true,
+  "resolution": 256,
+  "class_cond": false,
+  "instance_cond": false,
+  "run_setup": "local_debug"
+}
