@@ -1,5 +1,5 @@
 # <p align="center"> IC-GAN: Instance-Conditioned GAN </p>
-Official Pytorch code of [Instance-Conditioned GAN](https://arxiv.org/abs/2109.05070) by Arantxa Casanova, Marlene Careil, Jakob Verbeek, Michał Drożdżal, Adriana Romero-Soriano. 
+Official Pytorch code of [Instance-Conditioned GAN](https://arxiv.org/abs/2109.05070) by Arantxa Casanova, Marlène Careil, Jakob Verbeek, Michał Drożdżal, Adriana Romero-Soriano. 
 ![IC-GAN results](./figures/github_image.png?raw=true)
 
 ## Generate images with IC-GAN in a Colab Notebook
@@ -305,12 +305,10 @@ SOFTWARE.
 ## Cite the paper
 If this repository, the paper or any of its content is useful for your research, please cite:
 ```
-@misc{casanova2021instanceconditioned,
+@inproceedings{casanova2021instanceconditioned,
       title={Instance-Conditioned GAN}, 
       author={Arantxa Casanova and Marlène Careil and Jakob Verbeek and Michal Drozdzal and Adriana Romero-Soriano},
-      year={2021},
-      eprint={2109.05070},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+      booktitle={Advances in Neural Information Processing Systems (NeurIPS)},
+      year={2021}
 }
 ```
