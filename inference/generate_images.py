@@ -87,7 +87,8 @@ def get_conditionings(test_config, generator, data):
         else:
             idx = total_idxs[counter]
         # Image paths to visualize ground-truth instance
-        all_img_paths.append(data["image_path"][idx])
+        if test_config["visualize_instance_images"]:
+            all_img_paths.append(data["image_path"][idx])
         # Instance features
         all_feats.append(
             torch.FloatTensor(data["instance_features"][idx : idx + 1]).repeat(
