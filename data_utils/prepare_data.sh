@@ -19,7 +19,7 @@ if [ $dataset = 'imagenet' ]; then
   python data_utils/make_hdf5.py --resolution $resolution --split 'val' --data_root $path_imnet --out_path $out_path --save_images_only
   ## Calculate inception moments
   for split in 'train' 'val'; do
-    python data_utils/calculate_inception_moments.py --resolution $resolution --split 'train' --data_root $out_path --load_in_mem --out_path $out_path
+    python data_utils/calculate_inception_moments.py --resolution $resolution --split $split --data_root $out_path --load_in_mem --out_path $out_path
   done
   # Compute NNs
   python data_utils/make_hdf5_nns.py --resolution $resolution --split 'train' --feature_extractor 'classification' --data_root $out_path --out_path $out_path --k_nn 50
